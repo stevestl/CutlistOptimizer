@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cut List Optimizer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Cut List Optimizer</h1>
+          <p>
+            Import a Fusion 360 OBJ model, generate metric part dimensions, optimize quarter-based
+            stock purchases, and visualize board-by-board cutting layouts.
+          </p>
+        </div>
+        <div class="status-icons">
+          <span
+            id="sync-status-icon"
+            class="icon-dot red"
+            title="Sync status: not connected to cloud"
+            aria-label="Sync status"
+          ></span>
+          <span
+            id="storage-mode-icon"
+            class="icon-chip"
+            title="Storage backend: Local Browser Storage"
+            aria-label="Storage backend"
+            >L</span
+          >
+        </div>
+      </header>
+
+      <nav class="tab-nav" aria-label="Main tabs">
+        <button id="tab-planner" type="button" class="tab-btn active">Planner</button>
+        <button id="tab-settings" type="button" class="tab-btn">Settings</button>
+      </nav>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Project</h2>
+        <div class="grid project-grid">
+          <label>
+            Project name
+            <input id="project-name" type="text" placeholder="Couch + bench build" />
+          </label>
+          <div class="button-row">
+            <button id="save-project" type="button">Save Project</button>
+            <button id="new-project" type="button" class="secondary">New Project</button>
+          </div>
+          <label>
+            Saved projects
+            <select id="project-select">
+              <option value="">Select a project...</option>
+            </select>
+          </label>
+          <div class="button-row">
+            <button id="load-project" type="button" class="secondary">Load</button>
+            <button id="delete-project" type="button" class="danger">Delete</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Lumber Yard Inventory</h2>
+        <p class="help">
+          Optional mode to match real yard stock sizes. If you enable infinite inventory, quantities
+          are ignored and only dimensions matter.
+        </p>
+        <label class="checkbox-label inventory-toggle">
+          <span>Assume infinite inventory quantities</span>
+          <input id="inventory-infinite" type="checkbox" checked />
+        </label>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Thickness (quarters)</th>
+                <th>Width (in)</th>
+                <th>Length (ft)</th>
+                <th>Qty</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="inventory-body"></tbody>
+          </table>
+        </div>
+        <div class="button-row">
+          <button id="add-inventory" type="button" class="secondary">Add Inventory Row</button>
+        </div>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Run</h2>
+        <div class="button-row">
+          <button id="analyze" type="button">1) Analyze Model</button>
+          <button id="plan" type="button">2) Planning Stock</button>
+          <button id="inventory-plan" type="button">3) Lumber Yard Recalculate</button>
+        </div>
+        <p id="status" class="status">Load an OBJ file to start.</p>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>3D Preview</h2>
+        <p class="help">
+          Drag to orbit, pinch/scroll to zoom, two-finger drag to pan. The preview refreshes after
+          model load/analyze.
+        </p>
+        <div class="viewer-wrap">
+          <canvas id="model-viewer"></canvas>
+        </div>
+        <div class="button-row">
+          <button id="reset-view" type="button" class="secondary">Reset View</button>
+        </div>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Parts List (Metric)</h2>
+        <p class="help">
+          Raw dimensions are hidden by default; hover over a part name to view Raw X/Y/Z.
+        </p>
+        <div id="parts-summary" class="summary-grid"></div>
+        <div class="scroll">
+          <table id="parts-table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Part</th>
+                <th data-sort-key="netLengthMm">Net L</th>
+                <th data-sort-key="netWidthMm">Net W</th>
+                <th data-sort-key="netThicknessMm">Net T</th>
+                <th data-sort-key="roughLengthMm">Rough L</th>
+                <th data-sort-key="roughWidthMm">Rough W</th>
+                <th data-sort-key="roughThicknessMm">Rough T</th>
+                <th data-sort-key="stockQuarter">Stock</th>
+                <th data-sort-key="layers">Layers</th>
+                <th data-sort-key="grainLock">Grain Lock</th>
+                <th data-sort-key="thicknessOverrideQuarter">Override</th>
+                <th data-sort-key="orientation">Orientation</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Planning Result</h2>
+        <div id="planning-summary"></div>
+        <div id="planning-layouts" class="layout-grid"></div>
+      </section>
+
+      <section class="card tab-panel" data-tab="planner">
+        <h2>Lumber Yard Result</h2>
+        <div id="inventory-summary"></div>
+        <div id="lumber-yard-suggestions"></div>
+        <div id="inventory-layouts" class="layout-grid"></div>
+      </section>
+
+      <section class="card tab-panel hidden" data-tab="settings">
+        <h2>Cloud Sync (Firebase)</h2>
+        <p class="help">Optional. Connect Firebase to save projects in the cloud.</p>
+        <div class="grid import-grid">
+          <label>
+            API key
+            <input id="firebase-api-key" type="text" placeholder="AIza..." />
+          </label>
+          <label>
+            Auth domain
+            <input id="firebase-auth-domain" type="text" placeholder="your-app.firebaseapp.com" />
+          </label>
+          <label>
+            Project ID
+            <input id="firebase-project-id" type="text" placeholder="your-project-id" />
+          </label>
+          <label>
+            App ID
+            <input id="firebase-app-id" type="text" placeholder="1:123:web:abc..." />
+          </label>
+          <label>
+            Storage bucket (optional)
+            <input id="firebase-storage-bucket" type="text" placeholder="your-app.appspot.com" />
+          </label>
+          <label>
+            Messaging sender ID (optional)
+            <input id="firebase-messaging-sender-id" type="text" placeholder="1234567890" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="firebase-save-config" type="button" class="secondary">Save Firebase Config</button>
+          <button id="firebase-connect" type="button">Connect Firebase</button>
+          <button id="firebase-use-local" type="button" class="secondary">Use Local Storage</button>
+        </div>
+        <p id="firebase-status" class="status">Firebase not connected.</p>
+      </section>
+
+      <section class="card tab-panel hidden" data-tab="settings">
+        <h2>Model + Material Settings</h2>
+        <div class="grid import-grid">
+          <label>
+            OBJ file
+            <input id="obj-file" type="file" accept=".obj,text/plain" />
+          </label>
+          <label>
+            Model units
+            <select id="model-units">
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="m">m</option>
+              <option value="in">inches</option>
+              <option value="ft">feet</option>
+            </select>
+          </label>
+          <label>
+            Additional scale multiplier
+            <input
+              id="unit-scale"
+              type="number"
+              min="0.0001"
+              step="0.0001"
+              value="1"
+              title="Multiplies imported dimensions after unit conversion. Use 1 unless your export scale is off."
+            />
+          </label>
+          <label>
+            Stock thickness options (quarters)
+            <input id="thickness-options" type="text" value="4,5,6,8" />
+          </label>
+          <label>
+            Global thickness override
+            <select id="global-thickness-override">
+              <option value="auto">Auto</option>
+            </select>
+          </label>
+          <label>
+            Saw kerf (mm)
+            <input id="kerf" type="number" min="0" step="0.1" value="3.2" />
+          </label>
+          <label>
+            Price per board foot (USD)
+            <input id="price-per-board-foot" type="number" min="0" step="0.01" value="9.5" />
+          </label>
+          <label class="checkbox-label">
+            <span>Default grain-direction lock</span>
+            <input id="default-grain-lock" type="checkbox" checked />
+          </label>
+          <div class="button-row">
+            <button id="apply-thickness-override" type="button" class="secondary">
+              Apply Override To All Parts
+            </button>
+            <button id="clear-part-overrides" type="button" class="secondary">
+              Clear Part Overrides
+            </button>
+          </div>
+        </div>
+        <details open>
+          <summary>Milling allowances (metric)</summary>
+          <div class="grid catalog-grid">
+            <label>
+              Thickness allowance (mm)
+              <input id="allow-thickness" type="number" min="0" step="0.1" value="3.2" />
+            </label>
+            <label>
+              Width allowance (mm)
+              <input id="allow-width" type="number" min="0" step="0.1" value="3.2" />
+            </label>
+            <label>
+              Length allowance (mm)
+              <input id="allow-length" type="number" min="0" step="0.1" value="25.4" />
+            </label>
+            <label>
+              Board end trim reserve (mm)
+              <input id="board-end-trim" type="number" min="0" step="0.1" value="50.8" />
+            </label>
+            <label>
+              Rip margin per cut (mm)
+              <input id="rip-margin" type="number" min="0" step="0.1" value="1.6" />
+            </label>
+          </div>
+        </details>
+        <details>
+          <summary>Planner stock catalog defaults (imperial)</summary>
+          <div class="grid catalog-grid">
+            <label>
+              Width options (in)
+              <input id="planning-widths" type="text" value="4,6,8,10,12" />
+            </label>
+            <label>
+              Length options (ft)
+              <input id="planning-lengths" type="text" value="6,8,10" />
+            </label>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <template id="inventory-row-template">
+      <tr>
+        <td><input data-field="thicknessQuarter" type="number" min="1" step="1" value="4" /></td>
+        <td><input data-field="widthIn" type="number" min="1" step="0.25" value="8" /></td>
+        <td><input data-field="lengthFt" type="number" min="1" step="0.5" value="8" /></td>
+        <td><input data-field="quantity" type="number" min="1" step="1" placeholder="unlimited" /></td>
+        <td>
+          <button data-field="delete" type="button" class="danger">Remove</button>
+        </td>
+      </tr>
+    </template>
+
+    <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.161.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
