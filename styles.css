@@ -27,6 +27,8 @@ body {
   gap: 12px;
 }
 
+/* ── Header ─────────────────────────────────────────────────── */
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -35,11 +37,22 @@ body {
   padding: 6px 2px;
 }
 
+.topbar-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brand-icon {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
 .status-icons {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .icon-dot {
@@ -50,13 +63,8 @@ body {
   border: 1px solid rgba(0, 0, 0, 0.25);
 }
 
-.icon-dot.red {
-  background: #b83232;
-}
-
-.icon-dot.green {
-  background: #2d7d4f;
-}
+.icon-dot.red   { background: #b83232; }
+.icon-dot.green { background: #2d7d4f; }
 
 .icon-chip {
   min-width: 24px;
@@ -72,35 +80,21 @@ body {
   background: #7a6755;
 }
 
-.icon-chip.cloud {
-  background: #2d7d4f;
-}
+.icon-chip.cloud { background: #2d7d4f; }
+.icon-chip.local { background: #7a6755; }
 
-.icon-chip.local {
-  background: #7a6755;
-}
+/* ── Typography ─────────────────────────────────────────────── */
 
-h1,
-h2 {
-  margin: 0 0 8px;
-}
+h1, h2 { margin: 0 0 8px; }
+h1 { font-family: "Hoefler Text", "Baskerville", serif; font-size: 1.95rem; }
+h2 { font-size: 1.1rem; }
+p  { margin: 0; color: var(--ink-soft); }
 
-h1 {
-  font-family: "Hoefler Text", "Baskerville", serif;
-  font-size: 1.95rem;
-}
-
-h2 {
-  font-size: 1.1rem;
-}
-
-p {
-  margin: 0;
-  color: var(--ink-soft);
-}
+/* ── Tab navigation ─────────────────────────────────────────── */
 
 .tab-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -109,7 +103,7 @@ p {
   border-radius: 999px;
   background: #efe4d1;
   color: var(--ink);
-  padding: 8px 14px;
+  padding: 8px 16px;
   cursor: pointer;
 }
 
@@ -119,6 +113,19 @@ p {
   color: #fff;
 }
 
+/* ── Tab content wrapper ────────────────────────────────────── */
+
+.tab-content {
+  display: grid;
+  gap: 12px;
+}
+
+.tab-content.hidden {
+  display: none;
+}
+
+/* ── Cards ──────────────────────────────────────────────────── */
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -127,9 +134,9 @@ p {
   box-shadow: 0 6px 16px rgba(72, 50, 22, 0.08);
 }
 
-.hidden {
-  display: none;
-}
+.hidden { display: none; }
+
+/* ── Grid layouts ───────────────────────────────────────────── */
 
 .grid {
   display: grid;
@@ -143,8 +150,10 @@ p {
 
 .catalog-grid {
   margin-top: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
+
+/* ── Form elements ──────────────────────────────────────────── */
 
 label {
   display: grid;
@@ -152,27 +161,27 @@ label {
   font-size: 0.9rem;
 }
 
+/* Checkbox: input left of label text, same row */
 .checkbox-label {
-  align-content: end;
-  justify-items: start;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 
 .checkbox-label input {
   width: auto;
+  flex-shrink: 0;
+  margin: 0;
 }
 
 .inventory-toggle {
   margin-bottom: 10px;
 }
 
-input,
-select,
-button {
-  font: inherit;
-}
+input, select, button { font: inherit; }
 
-input,
-select {
+input, select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -190,19 +199,9 @@ button {
   color: #fff;
 }
 
-button.secondary {
-  border-color: var(--accent-2);
-  background: var(--accent-2);
-}
-
-button.danger {
-  border-color: var(--danger);
-  background: var(--danger);
-}
-
-button:hover {
-  filter: brightness(1.04);
-}
+button.secondary { border-color: var(--accent-2); background: var(--accent-2); }
+button.danger    { border-color: var(--danger);   background: var(--danger);   }
+button:hover     { filter: brightness(1.04); }
 
 .button-row {
   display: flex;
@@ -211,17 +210,22 @@ button:hover {
   align-items: end;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+/* Override buttons always stay side-by-side */
+.override-row {
+  align-items: start;
 }
 
-thead {
-  background: #efe6d7;
+.override-row button {
+  flex: 1;
 }
 
-th,
-td {
+/* ── Tables ─────────────────────────────────────────────────── */
+
+table { width: 100%; border-collapse: collapse; }
+
+thead { background: #efe6d7; }
+
+th, td {
   border: 1px solid var(--border);
   padding: 7px 8px;
   text-align: left;
@@ -229,46 +233,33 @@ td {
   vertical-align: top;
 }
 
-#parts-table th[data-sort-key] {
-  cursor: pointer;
+tfoot td {
+  background: #ede5d4;
+  font-weight: 600;
 }
 
-#parts-table th.sort-active {
-  background: #e6dbc8;
-}
+#parts-table th[data-sort-key] { cursor: pointer; }
+#parts-table th.sort-active    { background: #e6dbc8; }
+#parts-table td[data-col="orientation"] { min-width: 190px; }
 
-#parts-table td[data-col="orientation"] {
-  min-width: 190px;
-}
+td input { min-width: 84px; }
 
-td input {
-  min-width: 84px;
-}
+.scroll { overflow-x: auto; max-width: 100%; }
 
-.scroll {
-  overflow-x: auto;
-  max-width: 100%;
-}
+/* ── Status bar ─────────────────────────────────────────────── */
 
 .status {
-  margin-top: 10px;
+  margin: 0;
   border-radius: 8px;
   padding: 8px 10px;
   background: #ece5d8;
   border: 1px solid var(--border);
 }
 
-.status.error {
-  color: #7f2020;
-  border-color: #dfb4b4;
-  background: #fbecec;
-}
+.status.error { color: #7f2020; border-color: #dfb4b4; background: #fbecec; }
+.status.ok    { color: #21523b; border-color: #b8d6c4; background: #ebf7ef; }
 
-.status.ok {
-  color: #21523b;
-  border-color: #b8d6c4;
-  background: #ebf7ef;
-}
+/* ── Summary boxes ──────────────────────────────────────────── */
 
 .summary-grid {
   display: grid;
@@ -284,12 +275,19 @@ td input {
   font-size: 0.9rem;
 }
 
+.summary-box.warning { background: #fdf1e6; border-color: #dfc7a6; }
+.summary-box.ok      { background: #ebf7ef; border-color: #b8d6c4; }
+
+/* ── Layout grid ────────────────────────────────────────────── */
+
 .layout-grid {
   margin-top: 10px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
+
+/* ── 3D Viewer ──────────────────────────────────────────────── */
 
 .viewer-wrap {
   margin-top: 8px;
@@ -309,17 +307,10 @@ td input {
   touch-action: none;
 }
 
-.board-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  padding: 10px;
-}
+/* ── Board cards ────────────────────────────────────────────── */
 
-.board-card h4 {
-  margin: 0 0 8px;
-  font-size: 0.92rem;
-}
+.board-card { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 10px; }
+.board-card h4 { margin: 0 0 8px; font-size: 0.92rem; }
 
 .board-svg {
   width: 100%;
@@ -329,55 +320,107 @@ td input {
   background: #f9f2e6;
 }
 
-.help {
-  margin-bottom: 10px;
-  font-size: 0.9rem;
+/* ── Misc helpers ───────────────────────────────────────────── */
+
+.help { margin-bottom: 10px; font-size: 0.9rem; }
+.muted { color: var(--ink-soft); font-size: 0.88rem; }
+
+details summary { cursor: pointer; margin-top: 10px; }
+
+ul.compact { margin: 8px 0 0; padding-left: 18px; }
+
+/* ── Modal ──────────────────────────────────────────────────── */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(44, 35, 26, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
 }
 
-.muted {
-  color: var(--ink-soft);
-  font-size: 0.88rem;
+.modal.hidden { display: none; }
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 28px 20px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 12px 40px rgba(44, 35, 26, 0.22);
+  text-align: center;
 }
 
-details summary {
-  cursor: pointer;
-  margin-top: 10px;
+.modal-content p {
+  color: var(--ink);
+  font-size: 1rem;
+  margin-bottom: 18px;
 }
 
-ul.compact {
-  margin: 8px 0 0;
-  padding-left: 18px;
+.modal-content button { min-width: 88px; }
+
+/* ── Instructions ───────────────────────────────────────────── */
+
+.instructions-body h3 {
+  margin: 18px 0 6px;
+  font-size: 1rem;
+  color: var(--ink);
 }
+
+.instructions-body h3:first-child { margin-top: 0; }
+
+.instructions-body p { margin: 4px 0 8px; }
+
+.instructions-body ol,
+.instructions-body ul {
+  padding-left: 22px;
+  margin: 6px 0 10px;
+}
+
+.instructions-body li { margin-bottom: 4px; }
+
+.instructions-body pre {
+  background: #ece5d8;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.instructions-body code {
+  background: #ece5d8;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.88em;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
-  .shell {
-    width: 96vw;
-  }
+  .shell { width: 96vw; }
 
   .topbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .status-icons {
-    justify-content: flex-end;
-  }
+  .status-icons { justify-content: flex-end; }
 }
 
 @media (max-width: 680px) {
-  button {
-    width: 100%;
-  }
+  button { width: 100%; }
+  .button-row { width: 100%; }
 
-  .button-row {
-    width: 100%;
-  }
+  /* Override buttons still stay side-by-side on small screens */
+  .override-row button { width: auto; }
 
-  th,
-  td {
-    font-size: 0.8rem;
-    padding: 6px;
-  }
+  th, td { font-size: 0.8rem; padding: 6px; }
 }
 
 @media (max-width: 430px) {
@@ -388,19 +431,9 @@ ul.compact {
     gap: 10px;
   }
 
-  .card {
-    border-radius: 10px;
-    padding: 10px;
-  }
+  .card { border-radius: 10px; padding: 10px; }
 
-  input,
-  select,
-  button {
-    font-size: 0.95rem;
-  }
+  input, select, button { font-size: 0.95rem; }
 
-  .viewer-wrap {
-    height: min(50vh, 340px);
-    min-height: 220px;
-  }
+  .viewer-wrap { height: min(50vh, 340px); min-height: 220px; }
 }
