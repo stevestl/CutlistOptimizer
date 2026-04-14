@@ -1275,7 +1275,7 @@ function updateSyncStatusIndicator() {
   dom.syncStatusIcon.classList.toggle("green", healthy);
   dom.syncStatusIcon.classList.toggle("red",  !healthy);
   dom.syncStatusIcon.title = healthy
-    ? "Sync status: connected to Firebase cloud"
+    ? "Sync status: connected to cloud"
     : "Sync status: local mode or cloud disconnected";
 }
 
@@ -3028,19 +3028,12 @@ function renderLayouts(target, boards) {
       rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.006)));
       svg.append(rect);
 
-      // Label: left-aligned, reads left-to-right, no rotation.
-      // Minimum font size enforced at 12px (≈ 9pt) regardless of part or board size.
-      // yScale converts SVG mm units → rendered pixels so we can clamp in pixel terms.
-      const yScale      = svgHeight / board.widthMm; // px per mm
-      const minFontSvg  = 12 / yScale;               // 12px expressed in SVG units
-      const labelPad    = svgW * 0.03;
-      const fontSize    = Math.max(
-        minFontSvg,
-        Math.min(
-          svgH * 0.45,        // fit within part height
-          svgW * 0.06,        // don't dominate part width
-          board.widthMm * 0.10 // limit by board scale
-        )
+      // Label: left-aligned, reads left-to-right, no rotation
+      const labelPad = svgW * 0.03;
+      const fontSize = Math.min(
+        Math.max(4, svgH * 0.45),        // fit within part height
+        Math.max(4, svgW * 0.06),        // don't dominate part width
+        Math.max(4, board.widthMm * 0.10) // limit by board scale
       );
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
