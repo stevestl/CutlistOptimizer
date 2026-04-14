@@ -165,9 +165,37 @@ p  { margin: 0; color: var(--ink-soft); }
   gap: 10px;
 }
 
-.project-grid,
 .import-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+/* ── Project section two-row layout ────────────────────────── */
+
+.project-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.project-row > label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Keep action buttons snug and side-by-side at all widths */
+.project-row-actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.project-row-actions button {
+  white-space: nowrap;
 }
 
 .catalog-grid {
@@ -225,6 +253,11 @@ button.secondary { border-color: var(--accent-2); background: var(--accent-2); }
 button.danger    { border-color: var(--danger);   background: var(--danger);   }
 button:hover     { filter: brightness(1.04); }
 button:disabled  { opacity: 0.38; cursor: not-allowed; filter: none; }
+
+/* Wrapper that receives hover events even when inner button is disabled */
+.btn-tip-wrap { display: inline-block; }
+.btn-tip-wrap button:disabled { pointer-events: none; } /* let hover reach wrapper */
+@media (max-width: 680px) { .btn-tip-wrap { width: 100%; } }
 
 .button-row {
   display: flex;
@@ -456,7 +489,6 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   .link-btn { width: auto; }
 
   /* Collapse form grids to single column so nothing overflows */
-  .project-grid,
   .import-grid { grid-template-columns: 1fr; }
 
   th, td { font-size: 0.8rem; padding: 6px; }

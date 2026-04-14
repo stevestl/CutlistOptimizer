@@ -50,24 +50,30 @@
       <!-- Project section: visible only when signed in -->
       <section id="project-section" class="card hidden">
         <h2>Project</h2>
-        <div class="grid project-grid">
-          <label>
-            Project name
-            <input id="project-name" type="text" placeholder="Couch + bench build" />
-          </label>
-          <div class="button-row">
-            <button id="save-project" type="button">Save Project</button>
-            <button id="new-project" type="button" class="secondary">New Project</button>
+        <div class="project-rows">
+          <!-- Row 1: name + save/new -->
+          <div class="project-row">
+            <label>
+              Project name
+              <input id="project-name" type="text" placeholder="Couch + bench build" />
+            </label>
+            <div class="button-row project-row-actions">
+              <button id="save-project" type="button">Save</button>
+              <button id="new-project" type="button" class="secondary">New</button>
+            </div>
           </div>
-          <label>
-            Saved projects
-            <select id="project-select">
-              <option value="">Select a project…</option>
-            </select>
-          </label>
-          <div class="button-row">
-            <button id="load-project" type="button" class="secondary">Load</button>
-            <button id="delete-project" type="button" class="danger">Delete</button>
+          <!-- Row 2: select + load/delete -->
+          <div class="project-row">
+            <label>
+              Saved projects
+              <select id="project-select">
+                <option value="">Select a project…</option>
+              </select>
+            </label>
+            <div class="button-row project-row-actions">
+              <button id="load-project"   type="button" class="secondary" disabled>Load</button>
+              <button id="delete-project" type="button" class="danger"    disabled>Delete</button>
+            </div>
           </div>
         </div>
       </section>
@@ -218,7 +224,7 @@
                   <th data-sort-key="roughThicknessMm">Rough T</th>
                   <th data-sort-key="stockQuarter">Stock</th>
                   <th data-sort-key="layers">Layers</th>
-                  <th data-sort-key="grainLock">Grain Lock</th>
+                  <th data-sort-key="grainDir">Grain</th>
                   <th data-sort-key="thicknessOverrideQuarter">Override</th>
                   <th data-sort-key="orientation">Orientation</th>
                 </tr>
@@ -272,7 +278,9 @@
           <h2>Lumber Yard Result</h2>
           <p class="help">Re-optimizes against your real yard inventory. With infinite inventory and no rows, any standard catalog size may be used.</p>
           <div class="button-row" style="margin-bottom:12px">
-            <button id="inventory-plan" type="button">Recalculate</button>
+            <span id="recalc-tip-wrap" class="btn-tip-wrap">
+              <button id="inventory-plan" type="button" disabled>Recalculate</button>
+            </span>
           </div>
           <div id="inventory-summary"></div>
           <div id="lumber-yard-suggestions"></div>

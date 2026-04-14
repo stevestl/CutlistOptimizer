@@ -180,6 +180,7 @@ const dom = {
   inventoryInfinite:    document.querySelector("#inventory-infinite"),
   inventoryBody:        document.querySelector("#inventory-body"),
   addInventory:         document.querySelector("#add-inventory"),
+  recalcTipWrap:        document.querySelector("#recalc-tip-wrap"),
   inventoryRowTemplate: document.querySelector("#inventory-row-template"),
 
   // Lumber yard result
@@ -281,6 +282,7 @@ function wireEvents() {
   dom.loadProject.addEventListener("click",   loadSelectedProject);
   dom.deleteProject.addEventListener("click", deleteSelectedProject);
   dom.newProject.addEventListener("click",    clearProject);
+  dom.projectSelect.addEventListener("change", updateProjectSelectButtons);
 
   // Override buttons
   dom.applyThicknessOverride.addEventListener("click", applyGlobalOverrideToAllParts);
@@ -564,6 +566,7 @@ function addInventoryRow(initial = {}) {
 
   row.querySelector('button[data-field="delete"]').addEventListener("click", () => {
     row.remove();
+    updateRecalcButtonState();
   });
 
   dom.inventoryBody.append(row);
@@ -578,6 +581,7 @@ function setInventoryQuantityMode() {
     qty.disabled = infinite;
     qty.placeholder = infinite ? "ignored (infinite)" : "unlimited";
   }
+  updateRecalcButtonState();
 }
 
 function readInventoryRows(inventoryInfinite = false) {
@@ -606,6 +610,13 @@ function readInventoryRows(inventoryInfinite = false) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Project management
 // ─────────────────────────────────────────────────────────────────────────────
+
+function updateProjectSelectButtons() {
+  const hasSelection = !!dom.projectSelect.value;
+  dom.loadProject.disabled   = !hasSelection;
+  dom.deleteProject.disabled = !hasSelection;
+}
+
 function clearProject() {
   state.objText         = "";
   state.rawParts        = [];
@@ -636,7 +647,21 @@ function clearProject() {
 }
 
 function updateRecalcButtonState() {
-  dom.inventoryPlan.disabled = !state.planningResult;
+  const hasParts     = state.parts.length > 0;
+  const hasInventory = dom.inventoryInfinite.checked ||
+                       dom.inventoryBody.querySelectorAll("tr").length > 0;
+  const enabled = hasParts && hasInventory;
+  dom.inventoryPlan.disabled = !enabled;
+
+  let reason = "";
+  if (!hasParts && !hasInventory) {
+    reason = "Analyze a model and configure inventory first";
+  } else if (!hasParts) {
+    reason = "Analyze a model to extract parts first";
+  } else if (!hasInventory) {
+    reason = "Enable infinite inventory or add inventory rows first";
+  }
+  if (dom.recalcTipWrap) dom.recalcTipWrap.title = reason;
 }
 
 function clearResults() {
@@ -847,6 +872,7 @@ async function refreshProjectSelect(selectedId = "") {
     dom.projectSelect.append(opt);
   }
   if (selectedId) dom.projectSelect.value = selectedId;
+  updateProjectSelectButtons();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1516,7 +1542,9 @@ function hasExplicitPartOverrides() {
   return Object.values(state.partOverrides).some(
     (entry) =>
       entry &&
-      (entry.thicknessOverrideQuarter != null || typeof entry.grainLock === "boolean")
+      (entry.thicknessOverrideQuarter != null ||
+       typeof entry.grainLock === "boolean" ||
+       typeof entry.grainDir  === "string")
   );
 }
 
@@ -2011,8 +2039,19 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
       override.thicknessOverrideQuarter == null
         ? null
         : Number(override.thicknessOverrideQuarter);
-    const grainLock =
-      typeof override.grainLock === "boolean" ? override.grainLock : inputs.defaultGrainLock;
+    // Grain direction — 3-way enum: "long" | "mid" | "free"
+    // "long" = grain along longest axis, nesting cannot rotate (was grainLock: true)
+    // "mid"  = grain along middle axis, blank pre-rotated before nesting
+    // "free" = nesting may rotate freely (was grainLock: false)
+    // Backward compat: old saved overrides may have grainLock boolean instead of grainDir string.
+    let grainDir;
+    if (typeof override.grainDir === "string") {
+      grainDir = override.grainDir;
+    } else if (typeof override.grainLock === "boolean") {
+      grainDir = override.grainLock ? "long" : "free";
+    } else {
+      grainDir = inputs.defaultGrainLock ? "long" : "free";
+    }
     const excluded = Boolean(override.excluded);
 
     const canonical       = canonicalizePartAxes(rawPart);
@@ -2051,7 +2090,7 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
       roughWidthMm:     roundTo(roughWidthMm, 2),
       roughThicknessMm: roundTo(roughThicknessMm, 2),
       orientation,
-      grainLock,
+      grainDir,
       excluded,
       thicknessOverrideQuarter: overrideQuarter,
     };
@@ -2209,15 +2248,19 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
       continue;
     }
     for (let layer = 1; layer <= part.layers; layer++) {
+      // "mid" grain: swap rough dims so the blank enters nesting already rotated 90°,
+      // then lock rotation to preserve that orientation.
+      const blankWidth  = part.grainDir === "mid" ? part.roughLengthMm : part.roughWidthMm;
+      const blankLength = part.grainDir === "mid" ? part.roughWidthMm  : part.roughLengthMm;
       blanks.push({
         id:           `${part.id}-L${layer}`,
         partId:       part.id,
         basePartName: part.name,
         name: part.layers > 1 ? `${part.name} (lam ${layer}/${part.layers})` : part.name,
-        widthMm:      part.roughWidthMm,
-        lengthMm:     part.roughLengthMm,
+        widthMm:      blankWidth,
+        lengthMm:     blankLength,
         stockQuarter: part.stockQuarter,
-        grainLock:    part.grainLock,
+        grainLock:    part.grainDir !== "free", // "long" and "mid" both lock rotation
       });
     }
   }
@@ -2335,18 +2378,13 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
   const yieldPercent   = stockAreaMm2 ? (usedAreaMm2 / stockAreaMm2) * 100 : 0;
   const totalBoardFeet = sum(boards.map(boardFeetForBoard));
   const estimatedCost  = totalBoardFeet * inputs.pricePerBoardFoot;
-  const stockVolumeM3  = sum(
-    boards.map(
-      (b) => (quarterToMm(b.thicknessQuarter) * b.widthMm * b.lengthMm) / 1_000_000_000
-    )
-  );
 
   const upsizedBoards = boards.filter((b) => b.upsized);
 
   return {
     boards, unmetParts, upsizedBoards, boardUsage,
     stockAreaMm2, usedAreaMm2, yieldPercent,
-    totalBoardFeet, estimatedCost, stockVolumeM3,
+    totalBoardFeet, estimatedCost,
   };
 }
 
@@ -2677,18 +2715,23 @@ function renderPartsTable(parts, inputs) {
     );
     appendTextCell(row, part.layers ? String(part.layers) : "—");
 
-    // Grain lock checkbox
-    const grainCell  = document.createElement("td");
-    const grainInput = document.createElement("input");
-    grainInput.type    = "checkbox";
-    grainInput.checked = Boolean(part.grainLock);
-    grainInput.title   = "Prevent 90° rotation in nesting";
-    grainInput.addEventListener("change", () => {
+    // Grain direction select — Long / Mid / Free
+    const grainCell   = document.createElement("td");
+    const grainSelect = document.createElement("select");
+    grainSelect.title = "Long: grain along longest axis (no rotation). Mid: grain along middle axis (blank pre-rotated). Free: nesting may rotate.";
+    for (const [val, label] of [["long", "Long"], ["mid", "Mid"], ["free", "Free"]]) {
+      const opt = document.createElement("option");
+      opt.value       = val;
+      opt.textContent = label;
+      grainSelect.append(opt);
+    }
+    grainSelect.value = part.grainDir || "long";
+    grainSelect.addEventListener("change", () => {
       const current = state.partOverrides[part.id] || {};
-      state.partOverrides[part.id] = { ...current, grainLock: grainInput.checked };
+      state.partOverrides[part.id] = { ...current, grainDir: grainSelect.value };
       updatePartsFromOverrides();
     });
-    grainCell.append(grainInput);
+    grainCell.append(grainSelect);
     row.append(grainCell);
 
     // Per-part thickness override select
@@ -2773,7 +2816,7 @@ function getPartSortValue(part, key) {
     case "roughThicknessMm":     return Number(part[key] ?? Number.NaN);
     case "stockQuarter":         return part.stockQuarter == null ? Infinity : Number(part.stockQuarter);
     case "layers":               return Number(part.layers ?? Number.NaN);
-    case "grainLock":            return part.grainLock ? 1 : 0;
+    case "grainDir":             return part.grainDir || "";
     case "thicknessOverrideQuarter":
       return part.thicknessOverrideQuarter == null ? Infinity : Number(part.thicknessOverrideQuarter);
     case "orientation":          return part.orientation || "";
@@ -2820,8 +2863,7 @@ function renderPlanSummary(target, result, title, pricePerBoardFoot) {
     summaryBox(
       `Used area: ${formatNumber(result.usedAreaMm2 / 1_000_000, 3)} m² of ` +
       `${formatNumber(result.stockAreaMm2 / 1_000_000, 3)} m² (${formatNumber(result.yieldPercent, 1)}% yield)`
-    ),
-    summaryBox(`Estimated stock volume: ${formatNumber(result.stockVolumeM3, 4)} m³`)
+    )
   );
 
   if (result.upsizedBoards?.length) {
@@ -2961,6 +3003,12 @@ function renderLayouts(target, boards) {
     "#6d597a", "#2a9d8f",
   ];
 
+  // Global scale: derive from the widest board so all cards are proportional.
+  // baseScale targets ~180px display height for the widest board at scale 1.0.
+  const maxWidthMm = Math.max(...boards.map((b) => b.widthMm), 1);
+  const baseScale  = 180 / maxWidthMm;
+  const drawScale  = baseScale * state.layoutScale;
+
   boards.forEach((board, boardIndex) => {
     const card = document.createElement("article");
     card.className = "board-card";
@@ -2973,11 +3021,6 @@ function renderLayouts(target, boards) {
     subtitle.className = "muted";
     subtitle.textContent = `Metric: ${formatMm(board.widthMm, 1)} × ${formatMm(board.lengthMm, 1)} (${board.source})`;
     card.append(subtitle);
-
-    // Horizontal layout: board lies flat — length along X axis, width along Y axis.
-    // baseScale gives ~180px height for a typical 8" (203mm) wide board at scale 1.0.
-    const baseScale = 180 / (8 * INCH_TO_MM);
-    const drawScale = baseScale * state.layoutScale;
     const svgHeight = Math.max(60, board.widthMm * drawScale);
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");

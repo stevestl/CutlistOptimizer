@@ -44,22 +44,24 @@ Part orientation is fixed as requested:
    - Assigns stock thickness in **quarters**, with lamination layers when needed.
 
 2. **Thickness + grain controls**
-   - Default grain lock per project.
-   - Per-part grain lock toggle.
+   - Default grain direction per project (`Long` lock or `Free`).
+   - Per-part 3-way grain direction: **Long** (grain along longest axis, no rotation), **Mid** (grain along middle axis — blank pre-rotated before nesting), **Free** (nesting may rotate freely).
    - Per-part thickness override (`Auto` or specific quarter).
    - Global override apply-to-all.
 
 3. **Enhanced nesting solver**
    - MaxRects-style nesting heuristic.
-   - Respects grain lock (prevents 90° rotation when locked).
+   - Respects grain direction: `Long` and `Mid` both lock nesting rotation; `Mid` pre-rotates the blank before placement.
    - Packs rough blanks, including lamination layer expansion.
    - Board diagrams displayed horizontally — parts labelled left-to-right.
+   - All boards in a result set share a proportional scale (widest board = 100% height).
 
 4. **Lumber-yard recalculation**
-  - Re-optimizes against real inventory rows.
+   - Re-optimizes against real inventory rows.
    - Optional infinite quantity mode (inventory rows define sizes only).
    - Reports unmet parts and additional stock suggestions.
    - Boards exceeding the planning **Length max** are flagged for yard pre-cuts.
+   - **Recalculate** button activates as soon as parts are analyzed and inventory is configured (infinite mode or at least one row) — does not require Plan Stock to be run first.
 
 5. **Costing**
    - Total board feet calculation.
