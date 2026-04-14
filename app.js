@@ -2007,20 +2007,41 @@ function frameViewerOnModel() {
     return;
   }
 
-  const center     = box.getCenter(new THREE.Vector3());
-  const size       = box.getSize(new THREE.Vector3());
-  const maxDim     = Math.max(size.x, size.y, size.z);
-  const fitDist    = Math.max(400, (maxDim / (2 * Math.tan((camera.fov * Math.PI) / 360))) * 1.4);
+  const center = box.getCenter(new THREE.Vector3());
 
-  camera.near = Math.max(1, maxDim / 1000);
-  camera.far  = Math.max(10000, fitDist * 12);
-  camera.position.set(center.x + fitDist, center.y + fitDist * 0.68, center.z + fitDist);
+  // Use the bounding sphere radius so the fit works correctly regardless of
+  // which axis is longest and from whichever diagonal the camera approaches.
+  const sphere = new THREE.Sphere();
+  box.getBoundingSphere(sphere);
+  const radius = sphere.radius;
+
+  // Effective FOV: on portrait viewports the horizontal FOV is narrower, so use
+  // that as the limiting dimension to keep the model fully visible.
+  const vFovRad   = (camera.fov * Math.PI) / 180;
+  const effFovRad = camera.aspect >= 1
+    ? vFovRad
+    : 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
+
+  // Distance so the bounding sphere fills ~80% of the viewport (1.25 = 20% padding).
+  const distance = Math.max(400, (radius / Math.tan(effFovRad / 2)) * 1.25);
+
+  // 3/4 view: equal X/Z offset, slightly lower Y so the model reads naturally.
+  const dx = 1, dy = 0.65, dz = 1;
+  const dLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  camera.near = Math.max(1, radius / 100);
+  camera.far  = Math.max(10000, distance * 10);
+  camera.position.set(
+    center.x + (dx / dLen) * distance,
+    center.y + (dy / dLen) * distance,
+    center.z + (dz / dLen) * distance,
+  );
   camera.updateProjectionMatrix();
 
   controls.target.copy(center);
   controls.update();
 
-  // Store camera position only when loading a new model (originalCamera used by Reset View)
+  // Store for Reset View — only on first load of a new model
   if (!state.viewer.originalCamera) {
     state.viewer.originalCamera = {
       position: camera.position.clone(),
