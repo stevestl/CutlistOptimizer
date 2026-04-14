@@ -157,6 +157,11 @@
                 Length max (ft)
                 <input id="planning-length-max" type="number" min="1" step="1" value="10" />
               </label>
+              <label>
+                Max transport length (ft)
+                <input id="max-transport-length" type="number" min="1" step="1" value="12"
+                  title="Boards longer than this will receive a yard recut suggestion in Lumber Yard results." />
+              </label>
             </div>
           </details>
 
@@ -219,14 +224,6 @@
       <div class="tab-content hidden" data-tab="lumber-yard">
 
         <section class="card">
-          <h2>Lumber Yard Recalculate</h2>
-          <p class="help">Re-optimizes against your real yard inventory. With infinite inventory and no rows, any standard catalog size may be used.</p>
-          <div class="button-row">
-            <button id="inventory-plan" type="button">Recalculate</button>
-          </div>
-        </section>
-
-        <section class="card">
           <h2>Lumber Yard Inventory</h2>
           <p class="help">List the board sizes available at your lumber yard. Enable infinite inventory to ignore quantity constraints.</p>
           <label class="checkbox-label inventory-toggle">
@@ -254,6 +251,10 @@
 
         <section class="card">
           <h2>Lumber Yard Result</h2>
+          <p class="help">Re-optimizes against your real yard inventory. With infinite inventory and no rows, any standard catalog size may be used.</p>
+          <div class="button-row" style="margin-bottom:12px">
+            <button id="inventory-plan" type="button">Recalculate</button>
+          </div>
           <div id="inventory-summary"></div>
           <div id="lumber-yard-suggestions"></div>
           <div id="inventory-layouts" class="layout-grid"></div>
@@ -268,15 +269,26 @@
           <h2>Cloud Sync (Firebase)</h2>
           <p class="help">
             Firebase credentials are configured in <code>DEFAULT_FIREBASE_CONFIG</code> at the top of
-            <code>app.js</code>. When all four required fields are filled in, the app connects automatically on startup.
+            <code>app.js</code>. Sign in with an email/password account to sync your projects to the cloud.
           </p>
+          <div class="grid catalog-grid" style="margin-bottom:10px">
+            <label>
+              Email
+              <input id="firebase-email" type="email" placeholder="you@example.com" autocomplete="email" />
+            </label>
+            <label>
+              Password
+              <input id="firebase-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+            </label>
+          </div>
           <details>
             <summary>Firebase setup checklist</summary>
             <ol style="margin:8px 0 0;padding-left:18px;font-size:0.88rem;line-height:1.7">
               <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
               <li>Add a <strong>Web App</strong> and copy <strong>apiKey, authDomain, projectId, appId</strong> into <code>DEFAULT_FIREBASE_CONFIG</code> in <code>app.js</code>.</li>
               <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
-              <li>Enable <strong>Authentication → Anonymous</strong> sign-in method.</li>
+              <li>Enable <strong>Authentication → Email/Password</strong> sign-in method.</li>
+              <li>Create a user account in <strong>Authentication → Users</strong>.</li>
               <li>Add your domain (and <code>localhost</code>) to <strong>Authentication → Authorized Domains</strong>.</li>
               <li>Set Firestore Security Rules — see the <strong>Instructions</strong> tab for starter rules. The default "deny all" rules block all writes.</li>
             </ol>
@@ -361,9 +373,9 @@
               <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
               <li>Add a <strong>Web App</strong> and copy: apiKey, authDomain, projectId, appId.</li>
               <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
-              <li>Enable <strong>Authentication → Anonymous</strong> sign-in.</li>
+              <li>Enable <strong>Authentication → Email/Password</strong> sign-in and create a user account.</li>
               <li>Add your domain (and <code>localhost</code> for testing) to <strong>Authentication → Authorized Domains</strong>.</li>
-              <li>Paste the config values into the Settings tab and click <strong>Connect Firebase</strong>.</li>
+              <li>Enter your email and password in the Settings tab and click <strong>Connect Firebase</strong>.</li>
             </ol>
 
             <h3>Recommended Firestore Security Rules</h3>
@@ -402,7 +414,10 @@ service cloud.firestore {
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-msg">
       <div class="modal-content">
         <p id="modal-msg"></p>
-        <button id="modal-ok" type="button">OK</button>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button id="modal-ok" type="button">OK</button>
+          <button id="modal-cancel" type="button" class="secondary" style="display:none">Cancel</button>
+        </div>
       </div>
     </div>
 

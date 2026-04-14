@@ -9,7 +9,7 @@ const DEFAULT_FIREBASE_CONFIG = {
   apiKey: "AIzaSyBWt2qIalVgZsu8ZPsoBY--I6N4qX1i6vM",
   authDomain: "cut-list-optimizer-4b4c5.firebaseapp.com",
   projectId: "cut-list-optimizer-4b4c5",
-  appId: "1:585858585858:web:1234567890abcdef123456",
+  appId: "1:520866072644:web:4e0ed71abd041b07f91411",
   storageBucket: "cut-list-optimizer-4b4c5.appspot.com",      // optional
   messagingSenderId: "585858585858",  // optional
 };
@@ -24,7 +24,7 @@ const INCH_TO_MM = 25.4;
 const FOOT_TO_MM = 304.8;
 
 const DEFAULTS = {
-  modelUnits: "mm",
+  modelUnits: "cm",
   unitScale: 1,
   thicknessQuarters: [4, 5, 6, 8],
   globalThicknessOverride: "auto",
@@ -42,6 +42,7 @@ const DEFAULTS = {
   planningWidthMaxIn:  12,
   planningLengthMinFt: 6,
   planningLengthMaxFt: 10,
+  maxTransportLengthFt: 12,
   // Default inventory shown only on very first load (new project starts empty)
   inventory: [
     { thicknessQuarter: 4, widthIn: 8, lengthFt: 8,  quantity: 20 },
@@ -62,6 +63,7 @@ const state = {
   viewer: null,
   sort: { key: "name", direction: "asc" },
   activeTab: "planning",
+  layoutScale: 0.75, // board diagram scale; 1.0 = full size, default 0.75 (25% smaller)
   firebase: {
     connected: false,
     mode: "local",
@@ -101,6 +103,8 @@ const dom = {
   firebaseConnect:  document.querySelector("#firebase-connect"),
   firebaseUseLocal: document.querySelector("#firebase-use-local"),
   firebaseStatus:   document.querySelector("#firebase-status"),
+  firebaseEmail:    document.querySelector("#firebase-email"),
+  firebasePassword: document.querySelector("#firebase-password"),
 
   // Model + Material settings
   objFile:            document.querySelector("#obj-file"),
@@ -127,6 +131,9 @@ const dom = {
   planningWidthMax:  document.querySelector("#planning-width-max"),
   planningLengthMin: document.querySelector("#planning-length-min"),
   planningLengthMax: document.querySelector("#planning-length-max"),
+
+  // Transport
+  maxTransportLength: document.querySelector("#max-transport-length"),
 
   // Action buttons
   analyze:       document.querySelector("#analyze"),
@@ -159,9 +166,10 @@ const dom = {
   inventoryLayouts:    document.querySelector("#inventory-layouts"),
 
   // Modal
-  modal:    document.querySelector("#modal"),
-  modalMsg: document.querySelector("#modal-msg"),
-  modalOk:  document.querySelector("#modal-ok"),
+  modal:       document.querySelector("#modal"),
+  modalMsg:    document.querySelector("#modal-msg"),
+  modalOk:     document.querySelector("#modal-ok"),
+  modalCancel: document.querySelector("#modal-cancel"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,9 +231,11 @@ function wireEvents() {
   dom.firebaseUseLocal.addEventListener("click", useLocalStorageBackend);
 
   // Modal
-  dom.modalOk.addEventListener("click", hideModal);
+  dom.modalOk.addEventListener("click",     () => resolveModal(true));
+  dom.modalCancel.addEventListener("click", () => resolveModal(false));
   dom.modal.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" || e.key === "Enter") hideModal();
+    if (e.key === "Enter")  resolveModal(true);
+    if (e.key === "Escape") resolveModal(false);
   });
 }
 
@@ -233,19 +243,41 @@ function wireEvents() {
 // Modal
 // ─────────────────────────────────────────────────────────────────────────────
 let _modalReturnFocus = null;
+let _modalResolve     = null; // set when modal is in confirm mode
 
+// Info modal (one OK button)
 function showModal(message, fromElement = null) {
   dom.modalMsg.textContent = message;
+  dom.modalOk.textContent  = "OK";
+  dom.modalCancel.style.display = "none";
   dom.modal.classList.remove("hidden");
   _modalReturnFocus = fromElement || document.activeElement;
+  _modalResolve     = null;
   dom.modalOk.focus();
 }
 
-function hideModal() {
+// Confirm modal — returns a Promise<boolean>
+function showConfirm(message, okLabel = "Delete", fromElement = null) {
+  dom.modalMsg.textContent  = message;
+  dom.modalOk.textContent   = okLabel;
+  dom.modalCancel.style.display = "";
+  dom.modal.classList.remove("hidden");
+  _modalReturnFocus = fromElement || document.activeElement;
+  dom.modalOk.focus();
+  return new Promise((resolve) => { _modalResolve = resolve; });
+}
+
+function resolveModal(confirmed) {
   dom.modal.classList.add("hidden");
+  dom.modalCancel.style.display = "none";
   if (_modalReturnFocus) {
     try { _modalReturnFocus.focus(); } catch (_) {}
     _modalReturnFocus = null;
+  }
+  if (_modalResolve) {
+    const cb = _modalResolve;
+    _modalResolve = null;
+    cb(confirmed);
   }
 }
 
@@ -289,6 +321,7 @@ function seedDefaultProjectInputs() {
   dom.planningWidthMax.value  = String(DEFAULTS.planningWidthMaxIn);
   dom.planningLengthMin.value = String(DEFAULTS.planningLengthMinFt);
   dom.planningLengthMax.value = String(DEFAULTS.planningLengthMaxFt);
+  dom.maxTransportLength.value = String(DEFAULTS.maxTransportLengthFt);
 
   // Default inventory rows shown only on first/initial load
   dom.inventoryInfinite.checked = true;
@@ -328,6 +361,7 @@ function collectInputs() {
     planningWidthMaxIn:  getPositiveNumber(dom.planningWidthMax.value,  DEFAULTS.planningWidthMaxIn),
     planningLengthMinFt: getPositiveNumber(dom.planningLengthMin.value, DEFAULTS.planningLengthMinFt),
     planningLengthMaxFt: getPositiveNumber(dom.planningLengthMax.value, DEFAULTS.planningLengthMaxFt),
+    maxTransportLengthFt: getPositiveNumber(dom.maxTransportLength.value, DEFAULTS.maxTransportLengthFt),
     inventoryInfinite: Boolean(dom.inventoryInfinite.checked),
     inventory: readInventoryRows(Boolean(dom.inventoryInfinite.checked)),
     partOverrides: { ...state.partOverrides }, // snapshot — restored on project load
@@ -371,6 +405,7 @@ function restoreInputs(inputs) {
     dom.planningLengthMin.value = String(inputs.planningLengthMinFt ?? DEFAULTS.planningLengthMinFt);
     dom.planningLengthMax.value = String(inputs.planningLengthMaxFt ?? DEFAULTS.planningLengthMaxFt);
   }
+  dom.maxTransportLength.value = String(inputs.maxTransportLengthFt ?? DEFAULTS.maxTransportLengthFt);
 
   dom.inventoryInfinite.checked =
     typeof inputs.inventoryInfinite === "boolean" ? inputs.inventoryInfinite : true;
@@ -596,6 +631,14 @@ async function deleteSelectedProject() {
     return;
   }
 
+  const selectedName = dom.projectSelect.options[dom.projectSelect.selectedIndex]?.text || "this project";
+  const confirmed = await showConfirm(
+    `Delete "${selectedName}"? This cannot be undone.`,
+    "Delete",
+    dom.deleteProject
+  );
+  if (!confirmed) return;
+
   try {
     const project = await readProjectByIdActive(selectedId);
     if (activeStorageBackend() === "firebase") {
@@ -774,8 +817,14 @@ async function connectFirebase() {
     let app = window.firebase.apps.find((a) => a.name === appName);
     if (!app) app = window.firebase.initializeApp(config, appName);
 
-    const auth       = app.auth();
-    const credential = await auth.signInAnonymously(); // use returned credential to avoid race
+    const auth  = app.auth();
+    const email = dom.firebaseEmail.value.trim();
+    const pass  = dom.firebasePassword.value;
+    if (!email || !pass) {
+      setFirebaseStatus("Enter your email and password to connect.", "error");
+      return;
+    }
+    const credential = await auth.signInWithEmailAndPassword(email, pass);
     const user       = credential.user;
     const db         = app.firestore();
 
@@ -825,12 +874,8 @@ async function autoConnectFirebase() {
     );
     return;
   }
-  try {
-    await connectFirebase();
-  } catch (e) {
-    console.warn("Firebase auto-connect failed:", e);
-    setStatus(`Firebase auto-connect failed: ${e.message || "Unknown error"}`, "error");
-  }
+  // Email/password auth requires the user to explicitly sign in — no silent auto-connect.
+  setFirebaseStatus("Enter your email and password in Settings, then click Connect Firebase.");
 }
 
 function updateStorageModeIndicator() {
@@ -995,7 +1040,14 @@ function runInventoryPlan() {
     boardCatalog = buildInventoryCatalog(inventory);
   }
 
-  state.inventoryResult = optimizeCutPlan(state.parts, boardCatalog, analysis.inputs);
+  // Re-assign parts using only thickness quarters available in the catalog.
+  // This ensures that if the planner used 8/4 stock but the inventory only has
+  // 4/4, parts are reassigned with layers=2 (lamination) rather than left unmet.
+  const inventoryQuarters = [...new Set(boardCatalog.map((r) => r.thicknessQuarter))].sort((a, b) => a - b);
+  const inventoryInputs = { ...analysis.inputs, thicknessOptionsQuarters: inventoryQuarters };
+  const inventoryParts  = assignPartsForStock(state.rawParts, inventoryInputs, state.partOverrides);
+
+  state.inventoryResult = optimizeCutPlan(inventoryParts, boardCatalog, inventoryInputs);
 
   renderPlanSummary(
     dom.inventorySummary,
@@ -1006,21 +1058,22 @@ function runInventoryPlan() {
   renderLayouts(dom.inventoryLayouts, state.inventoryResult.boards);
 
   const suggestions = buildYardSuggestions(
-    state.parts,
+    inventoryParts,
     analysis.inputs.inventory,
-    analysis.inputs.kerfMm
+    analysis.inputs.kerfMm,
+    analysis.inputs.maxTransportLengthFt
   );
   renderYardSuggestions(suggestions);
 
   if (state.inventoryResult.unmetParts.length) {
     const unmetPlan = optimizeCutPlan(
-      state.parts.filter((part) =>
+      inventoryParts.filter((part) =>
         state.inventoryResult.unmetParts.some(
           (u) => u.partId && u.partId === part.id
         )
       ),
       boardCatalog.map((item) => ({ ...item, quantity: null })),
-      analysis.inputs
+      inventoryInputs
     );
     renderAdditionalNeeds(dom.inventorySummary, unmetPlan, analysis.inputs.pricePerBoardFoot);
   }
@@ -1591,10 +1644,21 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
     const roughThicknessMm = netThicknessMm + inputs.milling.thicknessMm;
     const thicknessPlan   = resolveStockPlan(roughThicknessMm, quarters, overrideQuarter);
 
-    // Orientation string: PCA parts show "PCA-corrected"; AABB parts show axis mapping
-    const orientation = rawPart.pcaDims
-      ? "PCA-corrected (angled part)"
-      : `X<=${canonical.x.axis} (grain), Y<=${canonical.y.axis}, Z<=${canonical.z.axis}`;
+    // Orientation string: show "PCA-corrected" only when PCA dims differ measurably
+    // from the sorted AABB dims, indicating the part is genuinely angled in 3D space.
+    let orientation;
+    if (rawPart.pcaDims) {
+      const aabbSorted = [rawPart.xMm, rawPart.yMm, rawPart.zMm].sort((a, b) => b - a);
+      const pca = rawPart.pcaDims;
+      const isAngled = aabbSorted.some(
+        (v, i) => v > 0.1 && Math.abs(v - pca[i]) / v > 0.02 // >2% deviation on any axis
+      );
+      orientation = isAngled
+        ? "PCA-corrected (angled part)"
+        : `X≤${canonical.x.axis} (grain), Y≤${canonical.y.axis}, Z≤${canonical.z.axis}`;
+    } else {
+      orientation = `X≤${canonical.x.axis} (grain), Y≤${canonical.y.axis}, Z≤${canonical.z.axis}`;
+    }
 
     const base = {
       id: rawPart.id,
@@ -2100,10 +2164,9 @@ function pruneContainedRects(rects) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Lumber yard suggestions
 // ─────────────────────────────────────────────────────────────────────────────
-function buildYardSuggestions(parts, inventory, kerfMm) {
+function buildYardSuggestions(parts, inventory, kerfMm, maxTransportLengthFt = DEFAULTS.maxTransportLengthFt) {
   const suggestions      = [];
-  const longThresholdMm  = 8 * FOOT_TO_MM;
-  const carryTargetMm    = 6 * FOOT_TO_MM;
+  const maxTransportMm   = maxTransportLengthFt * FOOT_TO_MM;
 
   const byQuarter = groupBy(
     parts.filter((p) => p.status === "ok" && p.stockQuarter),
@@ -2112,16 +2175,18 @@ function buildYardSuggestions(parts, inventory, kerfMm) {
 
   for (const row of inventory) {
     const boardLengthMm = row.lengthFt * FOOT_TO_MM;
-    if (boardLengthMm <= longThresholdMm + EPSILON) continue;
+    // Only suggest cuts when the board exceeds the max transport length
+    if (boardLengthMm <= maxTransportMm + EPSILON) continue;
 
     const partsForQuarter = byQuarter.get(String(row.thicknessQuarter)) || [];
     if (!partsForQuarter.length) continue;
 
     const maxRequiredLenMm = Math.max(...partsForQuarter.map((p) => p.roughLengthMm));
-    if (maxRequiredLenMm > carryTargetMm + EPSILON) continue;
+    // Only suggest if all parts for this quarter fit within transport length
+    if (maxRequiredLenMm > maxTransportMm + EPSILON) continue;
 
-    const segmentsMm = splitBoardLength(boardLengthMm, kerfMm, carryTargetMm);
-    suggestions.push({ row, maxRequiredLenMm, segmentsMm });
+    const segmentsMm = splitBoardLength(boardLengthMm, kerfMm, maxTransportMm);
+    suggestions.push({ row, maxRequiredLenMm, segmentsMm, maxTransportLengthFt });
   }
 
   return suggestions;
@@ -2146,10 +2211,11 @@ function splitBoardLength(totalLengthMm, kerfMm, targetMaxMm) {
 function renderYardSuggestions(suggestions) {
   if (!suggestions.length) {
     dom.lumberYardSuggestions.innerHTML =
-      '<p class="muted">No long-board recut suggestions meet the less-than-6-foot carry target.</p>';
+      '<p class="muted">No recut suggestions — all inventory boards are within the max transport length.</p>';
     return;
   }
-  dom.lumberYardSuggestions.innerHTML = "<h3>Lumber Yard Recut Suggestions</h3>";
+  const maxFt = suggestions[0].maxTransportLengthFt ?? DEFAULTS.maxTransportLengthFt;
+  dom.lumberYardSuggestions.innerHTML = `<h3>Lumber Yard Recut Suggestions <span class="muted" style="font-weight:400;font-size:0.88rem">(boards exceeding ${maxFt} ft transport limit)</span></h3>`;
   const list = document.createElement("ul");
   list.className = "compact";
   for (const sug of suggestions) {
@@ -2473,6 +2539,42 @@ function renderLayouts(target, boards) {
     return;
   }
 
+  // ── Scale control — rendered as a sibling BEFORE the board grid ──────────
+  // Remove any existing scale row for this target so re-renders stay clean
+  const existingScaleRow = target.previousElementSibling;
+  if (existingScaleRow && existingScaleRow.dataset.scaleFor === target.id) {
+    existingScaleRow.remove();
+  }
+
+  const scaleRow = document.createElement("div");
+  scaleRow.dataset.scaleFor = target.id;
+  scaleRow.style.cssText =
+    "display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:0.88rem;";
+
+  const scaleLabel = document.createElement("span");
+  scaleLabel.textContent = "Diagram scale:";
+
+  const slider = document.createElement("input");
+  slider.type  = "range";
+  slider.min   = "0.20";
+  slider.max   = "2.00";
+  slider.step  = "0.05";
+  slider.value = String(state.layoutScale);
+  slider.style.cssText = "flex:1;min-width:80px;max-width:220px;cursor:pointer;";
+
+  const pct = document.createElement("span");
+  pct.style.minWidth = "3.4em";
+  pct.textContent    = `${Math.round(state.layoutScale * 100)}%`;
+
+  slider.addEventListener("input", () => {
+    state.layoutScale = Number(slider.value);
+    renderLayouts(target, boards); // re-render with new scale
+  });
+
+  scaleRow.append(scaleLabel, slider, pct);
+  target.parentElement.insertBefore(scaleRow, target);
+
+  // ── Board cards ──────────────────────────────────────────────────────────
   const colors = [
     "#bc6c25", "#dda15e", "#606c38", "#283618",
     "#7f5539", "#9c6644", "#386641", "#1d3557",
@@ -2492,16 +2594,20 @@ function renderLayouts(target, boards) {
     subtitle.textContent = `Metric: ${formatMm(board.widthMm, 1)} × ${formatMm(board.lengthMm, 1)} (${board.source})`;
     card.append(subtitle);
 
-    const scale = 460 / board.widthMm;
-    const svg   = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    // Height is board.lengthMm scaled so that 460 px ≈ board width at scale 1.0
+    const baseScale  = 460 / board.widthMm;
+    const drawScale  = baseScale * state.layoutScale;
+    const svgHeight  = Math.max(60, board.lengthMm * drawScale);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "board-svg");
     svg.setAttribute("viewBox", `0 0 ${board.widthMm} ${board.lengthMm}`);
     svg.setAttribute("preserveAspectRatio", "none");
-    svg.style.height = `${Math.max(140, board.lengthMm * scale)}px`;
+    svg.style.height = `${svgHeight}px`;
 
     const boardRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     boardRect.setAttribute("x", "0"); boardRect.setAttribute("y", "0");
-    boardRect.setAttribute("width", String(board.widthMm));
+    boardRect.setAttribute("width",  String(board.widthMm));
     boardRect.setAttribute("height", String(board.lengthMm));
     boardRect.setAttribute("fill", "#f4e6ce");
     boardRect.setAttribute("stroke", "#a48a6a");
@@ -2523,21 +2629,34 @@ function renderLayouts(target, boards) {
 
     board.placements.forEach((placement, placementIndex) => {
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", String(placement.x));
-      rect.setAttribute("y", String(placement.y));
+      rect.setAttribute("x",      String(placement.x));
+      rect.setAttribute("y",      String(placement.y));
       rect.setAttribute("width",  String(placement.widthMm));
       rect.setAttribute("height", String(placement.lengthMm));
-      rect.setAttribute("fill", colors[(placementIndex + boardIndex) % colors.length]);
+      rect.setAttribute("fill",         colors[(placementIndex + boardIndex) % colors.length]);
       rect.setAttribute("fill-opacity", "0.86");
-      rect.setAttribute("stroke", "#ffffff");
+      rect.setAttribute("stroke",       "#ffffff");
       rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.0015)));
       svg.append(rect);
 
+      // Label centred on the placement rect, rotated -90° (reads bottom-to-top)
+      const cx = placement.x + placement.widthMm  / 2;
+      const cy = placement.y + placement.lengthMm / 2;
+      // Font size: fits within the narrower dimension of the part
+      const fontSize = Math.min(
+        Math.max(5, placement.widthMm  * 0.18),
+        Math.max(5, placement.lengthMm * 0.07),
+        Math.max(5, board.widthMm      * 0.045)
+      );
+
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", String(placement.x + 3));
-      label.setAttribute("y", String(placement.y + 10));
-      label.setAttribute("font-size", String(Math.max(8, board.widthMm * 0.04)));
-      label.setAttribute("fill", "#fff");
+      label.setAttribute("x",                String(cx));
+      label.setAttribute("y",                String(cy));
+      label.setAttribute("text-anchor",      "middle");
+      label.setAttribute("dominant-baseline","central");
+      label.setAttribute("font-size",        String(fontSize));
+      label.setAttribute("fill",             "#fff");
+      label.setAttribute("transform",        `rotate(-90, ${cx}, ${cy})`);
       label.textContent = shortenPartName(placement.partName);
       svg.append(label);
     });
@@ -2549,7 +2668,7 @@ function renderLayouts(target, boards) {
       (board.widthMm * board.lengthMm);
     const caption = document.createElement("p");
     caption.className = "muted";
-    caption.textContent = `${board.placements.length} blanks, ${formatNumber(boardYield * 100, 1)}% board yield`;
+    caption.textContent = `${board.placements.length} blank(s) · ${formatNumber(boardYield * 100, 1)}% board yield`;
     card.append(caption);
 
     target.append(card);

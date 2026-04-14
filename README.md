@@ -83,9 +83,9 @@ Part orientation is fixed as requested:
 
 The app supports both:
 - **Local Browser Storage** (`localStorage`)
-- **Firebase Cloud Storage** (Firestore + anonymous auth)
+- **Firebase Cloud Storage** (Firestore + email/password auth)
 
-You can switch between backends in the **Cloud Sync (Firebase)** section.
+You can switch between backends in the **Cloud Sync (Firebase)** section of the Settings tab.
 
 ## Firebase Setup Steps
 
@@ -96,14 +96,15 @@ You can switch between backends in the **Cloud Sync (Firebase)** section.
    - `projectId`
    - `appId`
    - optional: `storageBucket`, `messagingSenderId`
-3. Enable **Firestore Database** in **Native mode**.
-4. Enable **Authentication**:
-   - Sign-in method: **Anonymous** (enable it).
-5. Add your host to **Authentication > Settings > Authorized domains**:
+3. Paste these values into `DEFAULT_FIREBASE_CONFIG` at the top of `app.js`.
+4. Enable **Firestore Database** in **Native mode**.
+5. Enable **Authentication**:
+   - Sign-in method: **Email/Password** (enable it).
+   - Create a user account under **Authentication > Users**.
+6. Add your host to **Authentication > Settings > Authorized domains**:
    - include `localhost` (for local testing)
    - include your production domain when deployed
-6. In this app, paste config values into **Cloud Sync (Firebase)**.
-7. Click **Save Firebase Config**, then **Connect Firebase**.
+7. In the app's Settings tab, enter your email and password and click **Connect Firebase**.
 8. Confirm top-right icons show cloud mode:
    - storage icon switches to `C`
    - sync icon turns green
@@ -131,6 +132,36 @@ service cloud.firestore {
 Notes:
 - The app writes `ownerUid` on each project document.
 - If you already have data without `ownerUid`, add it before enforcing strict rules.
+
+## Hosting on GitHub Pages
+
+The app has no build step, so GitHub Pages serves it directly from the repository.
+
+### Steps
+
+1. Push the repository to GitHub (if not already there):
+   ```bash
+   git remote add origin https://github.com/<your-username>/<repo-name>.git
+   git push -u origin main
+   ```
+2. In your GitHub repository, go to **Settings → Pages**.
+3. Under **Source**, select **Deploy from a branch**.
+4. Choose **main** branch and **/ (root)** folder, then click **Save**.
+5. GitHub will publish the site at `https://<your-username>.github.io/<repo-name>/`.
+   The URL appears at the top of the Pages settings once deployment completes (usually ~1 minute).
+
+### Firebase authorized domain
+
+Once deployed, add your GitHub Pages domain to Firebase:
+
+1. Firebase console → **Authentication → Settings → Authorized domains**.
+2. Click **Add domain** and enter `<your-username>.github.io`.
+
+The app will then be able to sign in to Firebase from that domain.
+
+### Updating the site
+
+Every push to `main` automatically re-deploys. There is no separate build or publish step.
 
 ## Run
 
