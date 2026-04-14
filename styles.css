@@ -153,6 +153,7 @@ p  { margin: 0; color: var(--ink-soft); }
   border-radius: 12px;
   padding: 14px;
   box-shadow: 0 6px 16px rgba(72, 50, 22, 0.08);
+  min-width: 0; /* prevent grid blowout from wide children (pre, table, canvas) */
 }
 
 .hidden { display: none; }
@@ -305,8 +306,12 @@ td input { min-width: 84px; }
 .layout-grid {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+}
+
+@media (max-width: 680px) {
+  .layout-grid { grid-template-columns: 1fr; }
 }
 
 /* ── 3D Viewer ──────────────────────────────────────────────── */
@@ -417,6 +422,7 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   font-size: 0.82rem;
   line-height: 1.5;
   margin: 8px 0;
+  max-width: 100%; /* constrain within card so overflow-x: auto can actually scroll */
 }
 
 .instructions-body code {
@@ -443,8 +449,15 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   button { width: 100%; }
   .button-row { width: 100%; }
 
-  /* Override buttons still stay side-by-side on small screens */
-  .override-row button { width: auto; }
+  /* Buttons that must stay compact regardless of width */
+  .override-row button,
+  .tab-btn,
+  .user-menu-item,
+  .link-btn { width: auto; }
+
+  /* Collapse form grids to single column so nothing overflows */
+  .project-grid,
+  .import-grid { grid-template-columns: 1fr; }
 
   th, td { font-size: 0.8rem; padding: 6px; }
 }
@@ -609,6 +622,9 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   .card { border-radius: 10px; padding: 10px; }
 
   input, select, button { font-size: 0.95rem; }
+
+  /* Collapse catalog grids to single column on small phones */
+  .catalog-grid { grid-template-columns: 1fr; }
 
   .viewer-wrap { height: min(50vh, 340px); min-height: 220px; }
 }

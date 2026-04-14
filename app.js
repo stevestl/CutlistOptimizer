@@ -2975,10 +2975,10 @@ function renderLayouts(target, boards) {
     card.append(subtitle);
 
     // Horizontal layout: board lies flat — length along X axis, width along Y axis.
-    // baseScale ≈ 0.59 px/mm gives ~120px height for a typical 8" (203mm) wide board at scale 1.0.
-    const baseScale = 120 / (8 * INCH_TO_MM);
+    // baseScale gives ~180px height for a typical 8" (203mm) wide board at scale 1.0.
+    const baseScale = 180 / (8 * INCH_TO_MM);
     const drawScale = baseScale * state.layoutScale;
-    const svgHeight = Math.max(50, board.widthMm * drawScale);
+    const svgHeight = Math.max(60, board.widthMm * drawScale);
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "board-svg");
@@ -3028,12 +3028,19 @@ function renderLayouts(target, boards) {
       rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.006)));
       svg.append(rect);
 
-      // Label: left-aligned, reads left-to-right, no rotation
-      const labelPad = svgW * 0.03;
-      const fontSize = Math.min(
-        Math.max(4, svgH * 0.45),        // fit within part height
-        Math.max(4, svgW * 0.06),        // don't dominate part width
-        Math.max(4, board.widthMm * 0.10) // limit by board scale
+      // Label: left-aligned, reads left-to-right, no rotation.
+      // Minimum font size enforced at 12px (≈ 9pt) regardless of part or board size.
+      // yScale converts SVG mm units → rendered pixels so we can clamp in pixel terms.
+      const yScale      = svgHeight / board.widthMm; // px per mm
+      const minFontSvg  = 12 / yScale;               // 12px expressed in SVG units
+      const labelPad    = svgW * 0.03;
+      const fontSize    = Math.max(
+        minFontSvg,
+        Math.min(
+          svgH * 0.45,        // fit within part height
+          svgW * 0.06,        // don't dominate part width
+          board.widthMm * 0.10 // limit by board scale
+        )
       );
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
