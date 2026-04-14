@@ -107,8 +107,11 @@ const dom = {
   // Tabs
   tabPlanning:     document.querySelector("#tab-planning"),
   tabLumberYard:   document.querySelector("#tab-lumber-yard"),
+  tabWorkshop:     document.querySelector("#tab-workshop"),
   tabSettings:     document.querySelector("#tab-settings"),
   tabInstructions: document.querySelector("#tab-instructions"),
+  workshopSourceNote: document.querySelector("#workshop-source-note"),
+  workshopContent:    document.querySelector("#workshop-content"),
   tabContents:     [...document.querySelectorAll(".tab-content")],
 
   // Project
@@ -254,6 +257,7 @@ function wireEvents() {
   // Tabs
   dom.tabPlanning.addEventListener("click",     () => switchTab("planning"));
   dom.tabLumberYard.addEventListener("click",   () => switchTab("lumber-yard"));
+  dom.tabWorkshop.addEventListener("click",     () => switchTab("workshop"));
   dom.tabSettings.addEventListener("click",     () => switchTab("settings"));
   dom.tabInstructions.addEventListener("click", () => switchTab("instructions"));
 
@@ -379,6 +383,7 @@ function switchTab(tabName) {
   state.activeTab = tabName;
   dom.tabPlanning.classList.toggle("active",     tabName === "planning");
   dom.tabLumberYard.classList.toggle("active",   tabName === "lumber-yard");
+  dom.tabWorkshop.classList.toggle("active",     tabName === "workshop");
   dom.tabSettings.classList.toggle("active",     tabName === "settings");
   dom.tabInstructions.classList.toggle("active", tabName === "instructions");
   for (const content of dom.tabContents) {
@@ -1440,6 +1445,7 @@ function runPlanning() {
   );
   renderLayouts(dom.planningLayouts, state.planningResult.boards);
   updateRecalcButtonState();
+  renderWorkshopTab();
   setStatus("Planning stock optimization completed.", "ok");
 
   const boardCount = state.planningResult.boards.length;
@@ -1510,6 +1516,7 @@ function runInventoryPlan() {
     renderAdditionalNeeds(dom.inventorySummary, unmetPlan, analysis.inputs.pricePerBoardFoot);
   }
 
+  renderWorkshopTab();
   setStatus("Lumber yard recalculation completed.", "ok");
 
   const boardCount  = state.inventoryResult.boards.length;
@@ -2978,6 +2985,401 @@ function renderAdditionalNeeds(target, additionalPlan, pricePerBoardFoot) {
     `Extra board feet: ${formatNumber(extraBf, 2)}. ` +
     `Extra estimated cost: ${formatCurrency(extraBf * pricePerBoardFoot)}.`;
   target.append(block);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workshop tab — cut guide
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderWorkshopTab() {
+  if (!dom.workshopContent) return;
+
+  // Prefer inventory result (real boards); fall back to planning result.
+  const result = state.inventoryResult || state.planningResult;
+
+  if (!result || !result.boards.length) {
+    dom.workshopContent.innerHTML = "";
+    if (dom.workshopSourceNote) {
+      dom.workshopSourceNote.textContent =
+        "Run Plan Stock or Recalculate to generate the workshop guide.";
+    }
+    return;
+  }
+
+  const sourceLabel = state.inventoryResult ? "Lumber Yard Recalculate" : "Plan Stock";
+  if (dom.workshopSourceNote) {
+    dom.workshopSourceNote.innerHTML =
+      `Showing cut guide from <strong>${sourceLabel}</strong>. ` +
+      `Run Recalculate after visiting the lumber yard to get board-specific instructions.`;
+  }
+
+  // Build a fast lookup: partId → part data
+  const partsMap = new Map(state.parts.map((p) => [p.id, p]));
+
+  // Global draw scale (same logic as renderLayouts — widest board = 180 px)
+  const maxWidthMm = Math.max(...result.boards.map((b) => b.widthMm), 1);
+  const drawScale  = (180 / maxWidthMm) * state.layoutScale;
+
+  dom.workshopContent.innerHTML = "";
+
+  result.boards.forEach((board) => {
+    const card = document.createElement("div");
+    card.className = "workshop-board-card";
+
+    // ── Header ──────────────────────────────────────────────────
+    const title = document.createElement("h3");
+    title.textContent =
+      `${board.id} · ${board.thicknessQuarter}/4 × ${formatInches(board.widthIn)} × ${formatFeet(board.lengthFt, 1)}`;
+    card.append(title);
+
+    const sub = document.createElement("p");
+    sub.className = "muted";
+    sub.style.margin = "0 0 8px";
+    sub.textContent =
+      `${formatMm(board.widthMm, 0)} wide × ${formatMm(board.lengthMm, 0)} long · ${board.source}` +
+      (board.upsized ? ` · ⚠ upsized from ${board.neededQuarter}/4` : "");
+    card.append(sub);
+
+    // ── Board diagram (same SVG as layout view) ─────────────────
+    const svgHeight = Math.max(50, board.widthMm * drawScale);
+    const svg = buildBoardSvg(board, svgHeight);
+    card.append(svg);
+
+    // ── Parts table ─────────────────────────────────────────────
+    const partsSectionHead = document.createElement("div");
+    partsSectionHead.className = "workshop-section-heading";
+    partsSectionHead.textContent = "Parts on this board";
+    card.append(partsSectionHead);
+
+    card.append(buildWorkshopPartsTable(board, partsMap));
+
+    // ── Cut sequence ────────────────────────────────────────────
+    const cutHead = document.createElement("div");
+    cutHead.className = "workshop-section-heading";
+    cutHead.textContent = "Recommended cut sequence";
+    card.append(cutHead);
+
+    const steps = buildCutSequence(board, partsMap);
+    const ol = document.createElement("ol");
+    ol.className = "workshop-steps";
+    steps.forEach((step, i) => {
+      const li = document.createElement("li");
+      li.className = "workshop-step";
+
+      const num = document.createElement("span");
+      num.className = "workshop-step-num";
+      num.textContent = `${i + 1}.`;
+
+      const tool = document.createElement("span");
+      tool.className = `workshop-tool ${step.toolClass}`;
+      tool.textContent = step.tool;
+
+      const txt = document.createElement("span");
+      txt.textContent = step.text;
+
+      li.append(num, tool, txt);
+      ol.append(li);
+    });
+    card.append(ol);
+
+    // ── Final milling reference ──────────────────────────────────
+    const finalBox = buildFinalMillingBox(board, partsMap);
+    if (finalBox) card.append(finalBox);
+
+    dom.workshopContent.append(card);
+  });
+}
+
+// Build the same SVG used in renderLayouts but returns the element (no scale row).
+function buildBoardSvg(board, svgHeight) {
+  const colors = [
+    "#bc6c25","#dda15e","#606c38","#283618",
+    "#7f5539","#9c6644","#386641","#1d3557",
+    "#6d597a","#2a9d8f",
+  ];
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("class","board-svg");
+  svg.setAttribute("viewBox",`0 0 ${board.lengthMm} ${board.widthMm}`);
+  svg.setAttribute("preserveAspectRatio","none");
+  svg.style.height = `${svgHeight}px`;
+
+  const bg = document.createElementNS("http://www.w3.org/2000/svg","rect");
+  bg.setAttribute("x","0"); bg.setAttribute("y","0");
+  bg.setAttribute("width",String(board.lengthMm));
+  bg.setAttribute("height",String(board.widthMm));
+  bg.setAttribute("fill","#f4e6ce");
+  bg.setAttribute("stroke","#a48a6a");
+  bg.setAttribute("stroke-width",String(Math.max(0.8, board.widthMm * 0.008)));
+  svg.append(bg);
+
+  if (board.trimTotalMm > EPSILON) {
+    for (const [x, w] of [
+      [0, board.trimOffsetMm],
+      [board.lengthMm - board.trimOffsetMm, board.trimOffsetMm],
+    ]) {
+      const trim = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      trim.setAttribute("x",String(x)); trim.setAttribute("y","0");
+      trim.setAttribute("width",String(w)); trim.setAttribute("height",String(board.widthMm));
+      trim.setAttribute("fill","#d7c4a8"); trim.setAttribute("fill-opacity","0.55");
+      svg.append(trim);
+    }
+  }
+
+  board.placements.forEach((placement, idx) => {
+    const svgX = placement.y;
+    const svgY = placement.x;
+    const svgW = placement.lengthMm;
+    const svgH = placement.widthMm;
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
+    rect.setAttribute("x",String(svgX)); rect.setAttribute("y",String(svgY));
+    rect.setAttribute("width",String(svgW)); rect.setAttribute("height",String(svgH));
+    rect.setAttribute("fill", colors[idx % colors.length]);
+    rect.setAttribute("fill-opacity","0.86");
+    rect.setAttribute("stroke","#ffffff");
+    rect.setAttribute("stroke-width",String(Math.max(0.6, board.widthMm * 0.006)));
+    svg.append(rect);
+
+    const labelPad = svgW * 0.03;
+    const fontSize = Math.min(
+      Math.max(4, svgH * 0.45),
+      Math.max(4, svgW * 0.06),
+      Math.max(4, board.widthMm * 0.10)
+    );
+    const label = document.createElementNS("http://www.w3.org/2000/svg","text");
+    label.setAttribute("x",String(svgX + labelPad));
+    label.setAttribute("y",String(svgY + svgH / 2));
+    label.setAttribute("text-anchor","start");
+    label.setAttribute("dominant-baseline","central");
+    label.setAttribute("font-size",String(fontSize));
+    label.setAttribute("fill","#fff");
+    label.textContent = shortenPartName(placement.partName);
+    svg.append(label);
+  });
+
+  return svg;
+}
+
+// Parts mini-table: one row per placement showing rough + net dims.
+function buildWorkshopPartsTable(board, partsMap) {
+  const table = document.createElement("table");
+  table.className = "workshop-parts-table";
+
+  const thead = table.createTHead();
+  const hr = thead.insertRow();
+  for (const h of ["Part", "Rough L × W × T", "Net L × W × T", "Grain"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    hr.append(th);
+  }
+
+  const tbody = table.createTBody();
+  // Sort placements left-to-right (by y = position along board length)
+  const sorted = [...board.placements].sort((a, b) => a.y - b.y);
+
+  for (const p of sorted) {
+    const part = partsMap.get(p.partId);
+    const tr = tbody.insertRow();
+
+    const nameTd = tr.insertCell();
+    nameTd.textContent = p.partName; // includes lam note when relevant
+
+    const roughTd = tr.insertCell();
+    roughTd.textContent = part
+      ? `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}`
+      : `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × —`;
+
+    const netTd = tr.insertCell();
+    netTd.textContent = part
+      ? `${formatMm(part.netLengthMm, 0)} × ${formatMm(part.netWidthMm, 0)} × ${formatMm(part.netThicknessMm, 0)}`
+      : "—";
+
+    const grainTd = tr.insertCell();
+    grainTd.textContent = part
+      ? ({ long: "Long ▶", mid: "Mid ▶", free: "Free ↻" }[part.grainDir] ?? "Long ▶")
+      : "—";
+  }
+
+  return table;
+}
+
+/**
+ * Generate a step-by-step cut sequence for a single board.
+ * Steps are objects: { tool, toolClass, text }
+ */
+function buildCutSequence(board, partsMap) {
+  const steps   = [];
+  const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
+
+  const stockMm = quarterToMm(board.thicknessQuarter);
+
+  // Thickness needed: max rough thickness of parts placed on this board
+  const maxRoughThick = board.placements.reduce((max, p) => {
+    const part = partsMap.get(p.partId);
+    return Math.max(max, part ? part.roughThicknessMm : 0);
+  }, 0) || stockMm;
+
+  const trimEach = board.trimOffsetMm ?? 25.4;
+
+  // ── Initial milling ──────────────────────────────────────────
+  spacer("Inspect", "tool-inspect",
+    "Check for cupping, bowing, twist, and surface defects. " +
+    "Mark any knots or checks to route around when laying out blanks.");
+
+  spacer("Jointer", "tool-jointer",
+    "Face joint one face flat. This becomes your reference face (face against the planer bed).");
+
+  // Re-saw suggestion: if stock is more than ~12 mm thicker than the thickest part needs
+  const resawExcess = stockMm - maxRoughThick;
+  if (resawExcess > 12) {
+    const resawTarget = roundTo(maxRoughThick + 3, 0.5);
+    spacer("Band saw", "tool-bandsaw",
+      `Re-saw to ≈${formatMm(resawTarget, 0)} — stock is ${formatMm(stockMm, 0)} ` +
+      `but parts only need ${formatMm(maxRoughThick, 0)} rough thickness. ` +
+      `Re-sawing now saves ${formatMm(resawExcess - 3, 0)} of planer time and reduces waste. ` +
+      `Save the off-cut for thinner parts.`);
+    spacer("Jointer", "tool-jointer",
+      "Light face-joint pass on the re-sawn face to remove saw marks before planing.");
+  }
+
+  spacer("Planer", "tool-planer",
+    `Plane to rough thickness: ${formatMm(maxRoughThick, 1)}. ` +
+    `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.`);
+
+  spacer("Jointer", "tool-jointer",
+    "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
+
+  spacer("Miter saw", "tool-mitersaw",
+    `Trim ends: cut ${formatMm(trimEach, 0)} from each end to square up and remove ` +
+    `end checks. You now have ${formatMm(board.usableLengthMm ?? (board.lengthMm - 2 * trimEach), 0)} of usable length.`);
+
+  // ── Blank cuts ───────────────────────────────────────────────
+  // Sort placements by y (distance from reference end along board length)
+  const sorted = [...board.placements].sort((a, b) => a.y - b.y);
+
+  // Group into cross-cut sections: placements whose y-ranges overlap share a section.
+  const sections = [];
+  for (const p of sorted) {
+    const pEnd = p.y + p.lengthMm;
+    const last = sections[sections.length - 1];
+    if (last && p.y < last.endY + EPSILON) {
+      // Overlapping in length — same cross-cut section
+      last.endY = Math.max(last.endY, pEnd);
+      last.placements.push(p);
+    } else {
+      sections.push({ startY: p.y, endY: pEnd, placements: [p] });
+    }
+  }
+
+  if (sections.length > 1) {
+    spacer("Note", "tool-note",
+      `Cross-cut the board into ${sections.length} sections first, then rip each section to width. ` +
+      `Measurements below are from the trimmed reference end.`);
+  }
+
+  sections.forEach((sec, si) => {
+    // Cross-cut position from trimmed reference end
+    const crossCutPos = roundTo(sec.endY - trimEach, 0.5);
+    const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
+    const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
+
+    if (sections.length > 1) {
+      spacer("Miter saw", "tool-mitersaw",
+        `Cross-cut section ${si + 1} at ${formatMm(crossCutPos, 0)} from reference end ` +
+        `— yields a ${formatMm(sectionLen, 0)}-long piece containing: ${names}.`);
+    }
+
+    // Within the section, rip each blank in order of x (width position)
+    const byX = [...sec.placements].sort((a, b) => a.x - b.x);
+    byX.forEach((p, pi) => {
+      const part = partsMap.get(p.partId);
+      const lamNote = (part && part.layers > 1)
+        ? ` · lamination layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers}`
+        : "";
+      const crossCutNote = sectionLen > p.lengthMm + 1
+        ? ` (cross-cut to ${formatMm(p.lengthMm, 0)} first)`
+        : "";
+
+      spacer("Table saw", "tool-tablesaw",
+        `Rip to ${formatMm(p.widthMm, 0)} wide${crossCutNote} → ` +
+        `blank: ${formatMm(p.lengthMm, 0)} L × ${formatMm(p.widthMm, 0)} W × ` +
+        `${formatMm(maxRoughThick, 0)} T — "${p.partName}"${lamNote}.`);
+    });
+  });
+
+  // ── Lamination note ─────────────────────────────────────────
+  const laminatedParts = [...new Set(
+    board.placements
+      .map((p) => partsMap.get(p.partId))
+      .filter((pt) => pt && pt.layers > 1)
+      .map((pt) => pt.name)
+  )];
+  if (laminatedParts.length) {
+    spacer("Note", "tool-note",
+      `Lamination: ${laminatedParts.join(", ")} require layers glued together to reach ` +
+      `full thickness. Glue up all layers for each part, clamp overnight, ` +
+      `then surface both faces before final milling.`);
+  }
+
+  return steps;
+}
+
+/**
+ * Build a "Final Milling Reference" box showing net target dimensions per unique part.
+ */
+function buildFinalMillingBox(board, partsMap) {
+  const seenIds = new Set();
+  const rows    = [];
+
+  const sorted = [...board.placements].sort((a, b) => a.y - b.y);
+  for (const p of sorted) {
+    if (seenIds.has(p.partId)) continue;
+    seenIds.add(p.partId);
+    const part = partsMap.get(p.partId);
+    if (!part) continue;
+    rows.push(part);
+  }
+  if (!rows.length) return null;
+
+  const box = document.createElement("div");
+  box.className = "workshop-final-milling";
+
+  const heading = document.createElement("h4");
+  heading.textContent = "Final milling — target net dimensions";
+  box.append(heading);
+
+  const table = document.createElement("table");
+  table.className = "workshop-parts-table";
+  table.style.background = "transparent";
+
+  const thead = table.createTHead();
+  const hr = thead.insertRow();
+  for (const h of ["Part", "Plane to (T)", "Rip to (W)", "Cross-cut to (L)"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    hr.append(th);
+  }
+
+  const tbody = table.createTBody();
+  for (const part of rows) {
+    const tr = tbody.insertRow();
+    tr.insertCell().textContent = part.name;
+    tr.insertCell().textContent = formatMm(part.netThicknessMm, 1);
+    tr.insertCell().textContent = formatMm(part.netWidthMm, 1);
+    tr.insertCell().textContent = formatMm(part.netLengthMm, 1);
+  }
+  box.append(table);
+
+  const note = document.createElement("p");
+  note.className = "muted";
+  note.style.marginTop = "6px";
+  note.textContent =
+    "Mill to net dimensions in this order: face joint → plane to net T → " +
+    "joint edge → rip to net W → cross-cut to net L.";
+  box.append(note);
+
+  return box;
 }
 
 function renderLayouts(target, boards) {

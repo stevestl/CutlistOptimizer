@@ -465,6 +465,122 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   font-size: 0.88em;
 }
 
+/* ── Workshop tab ───────────────────────────────────────────── */
+
+.workshop-board-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.workshop-board-card h3 {
+  margin: 0 0 2px;
+  font-size: 1rem;
+}
+
+.workshop-board-card .board-svg {
+  margin: 10px 0 6px;
+}
+
+/* Parts mini-table */
+.workshop-parts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin: 10px 0 14px;
+}
+
+.workshop-parts-table th {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.workshop-parts-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #ece5d8;
+  vertical-align: top;
+}
+
+.workshop-parts-table tr:last-child td { border-bottom: none; }
+
+/* Cut sequence */
+.workshop-steps { list-style: none; margin: 0; padding: 0; }
+
+.workshop-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid #f0e8dc;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.workshop-step:last-child { border-bottom: none; }
+
+.workshop-step-num {
+  flex-shrink: 0;
+  width: 1.6em;
+  text-align: right;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+
+.workshop-tool {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  min-width: 72px;
+  text-align: center;
+}
+
+/* Tool colour coding */
+.tool-inspect  { background: #e8e0d4; color: #5a4a38; }
+.tool-jointer  { background: #d4e8d4; color: #1e5c2a; }
+.tool-planer   { background: #d4e0f0; color: #1a3a6a; }
+.tool-bandsaw  { background: #f0dce8; color: #6a1a50; }
+.tool-mitersaw { background: #fce8cc; color: #7a3c00; }
+.tool-tablesaw { background: #fff0b8; color: #5a4400; }
+.tool-note     { background: #ece5d8; color: #5a4a38; }
+
+.workshop-section-heading {
+  margin: 14px 0 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+/* Final milling reference box */
+.workshop-final-milling {
+  background: #f7f2ea;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 14px;
+  font-size: 0.82rem;
+}
+
+.workshop-final-milling h4 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 900px) {

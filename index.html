@@ -82,6 +82,7 @@
       <nav class="tab-nav" aria-label="Main tabs">
         <button id="tab-planning"      type="button" class="tab-btn active">Planning</button>
         <button id="tab-lumber-yard"   type="button" class="tab-btn">Lumber Yard</button>
+        <button id="tab-workshop"      type="button" class="tab-btn">Workshop</button>
         <button id="tab-settings"      type="button" class="tab-btn">Admin</button>
         <button id="tab-instructions"  type="button" class="tab-btn">Instructions</button>
       </nav>
@@ -287,6 +288,15 @@
         </section>
 
       </div><!-- /lumber-yard tab -->
+
+      <!-- ── WORKSHOP TAB ───────────────────────────────────────── -->
+      <div class="tab-content hidden" data-tab="workshop">
+        <section class="card">
+          <h2>Workshop Cut Guide</h2>
+          <p class="help" id="workshop-source-note">Run <strong>Plan Stock</strong> or <strong>Recalculate</strong> to generate the workshop guide.</p>
+        </section>
+        <div id="workshop-content"></div>
+      </div><!-- /workshop tab -->
 
       <!-- ── ADMIN TAB ──────────────────────────────────────────── -->
       <div class="tab-content hidden" data-tab="settings">

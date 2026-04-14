@@ -56,7 +56,20 @@ Part orientation is fixed as requested:
    - Board diagrams displayed horizontally — parts labelled left-to-right.
    - All boards in a result set share a proportional scale (widest board = 100% height).
 
-4. **Lumber-yard recalculation**
+4. **Workshop cut guide**
+   - Activated automatically after Plan Stock or Recalculate.
+   - Prefers Lumber Yard Recalculate result (real boards); falls back to Plan Stock.
+   - Per-board cards showing: board description, parts table (rough + net dims + grain), recommended cut sequence, final milling reference.
+   - **Cut sequence** covers the full standard milling workflow per board:
+     - Inspect for defects / warp
+     - Face joint (jointer) → plane to rough thickness (planer)
+     - Re-saw suggestion when stock is significantly thicker than needed
+     - Joint one edge (jointer) → trim ends (miter saw)
+     - Cross-cut sections (miter saw) → rip blanks to width (table saw), ordered left-to-right
+     - Lamination note when layers must be glued up
+   - **Final milling reference** table shows net target dimensions (T/W/L) per part.
+
+5. **Lumber-yard recalculation**
    - Re-optimizes against real inventory rows.
    - Optional infinite quantity mode (inventory rows define sizes only).
    - Reports unmet parts and additional stock suggestions.
