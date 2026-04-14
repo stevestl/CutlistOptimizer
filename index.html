@@ -77,6 +77,7 @@
                 <option value="in">inches</option>
                 <option value="ft">feet</option>
               </select>
+              <span id="units-detected-note" class="muted" style="font-size:0.8rem;display:none"></span>
             </label>
             <label>
               Additional scale multiplier
@@ -105,10 +106,10 @@
               <input id="default-grain-lock" type="checkbox" checked />
               <span>Default grain-direction lock</span>
             </label>
-            <div class="button-row override-row">
-              <button id="apply-thickness-override" type="button" class="secondary">Apply Override To All Parts</button>
-              <button id="clear-part-overrides"      type="button" class="secondary">Clear Part Overrides</button>
-            </div>
+          </div>
+          <div class="button-row override-row" style="margin-top:8px">
+            <button id="apply-thickness-override" type="button" class="secondary">Apply Override To All Parts</button>
+            <button id="clear-part-overrides"      type="button" class="secondary">Clear Part Overrides</button>
           </div>
 
           <details>
@@ -183,6 +184,7 @@
             <table id="parts-table">
               <thead>
                 <tr>
+                  <th title="Exclude from planning">Excl</th>
                   <th data-sort-key="name">Part</th>
                   <th data-sort-key="netLengthMm">Net L</th>
                   <th data-sort-key="netWidthMm">Net W</th>
@@ -264,37 +266,24 @@
 
         <section class="card">
           <h2>Cloud Sync (Firebase)</h2>
-          <p class="help">Connect Firebase to save projects to the cloud and access them from any device. If default credentials are configured in the code, connection happens automatically on startup.</p>
-          <div class="grid import-grid">
-            <label>
-              API key
-              <input id="firebase-api-key" type="text" placeholder="AIza…" />
-            </label>
-            <label>
-              Auth domain
-              <input id="firebase-auth-domain" type="text" placeholder="your-app.firebaseapp.com" />
-            </label>
-            <label>
-              Project ID
-              <input id="firebase-project-id" type="text" placeholder="your-project-id" />
-            </label>
-            <label>
-              App ID
-              <input id="firebase-app-id" type="text" placeholder="1:123:web:abc…" />
-            </label>
-            <label>
-              Storage bucket (optional)
-              <input id="firebase-storage-bucket" type="text" placeholder="your-app.appspot.com" />
-            </label>
-            <label>
-              Messaging sender ID (optional)
-              <input id="firebase-messaging-sender-id" type="text" placeholder="1234567890" />
-            </label>
-          </div>
-          <div class="button-row">
-            <button id="firebase-save-config" type="button" class="secondary">Save Firebase Config</button>
-            <button id="firebase-connect"      type="button">Connect Firebase</button>
-            <button id="firebase-use-local"    type="button" class="secondary">Use Local Storage</button>
+          <p class="help">
+            Firebase credentials are configured in <code>DEFAULT_FIREBASE_CONFIG</code> at the top of
+            <code>app.js</code>. When all four required fields are filled in, the app connects automatically on startup.
+          </p>
+          <details>
+            <summary>Firebase setup checklist</summary>
+            <ol style="margin:8px 0 0;padding-left:18px;font-size:0.88rem;line-height:1.7">
+              <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
+              <li>Add a <strong>Web App</strong> and copy <strong>apiKey, authDomain, projectId, appId</strong> into <code>DEFAULT_FIREBASE_CONFIG</code> in <code>app.js</code>.</li>
+              <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
+              <li>Enable <strong>Authentication → Anonymous</strong> sign-in method.</li>
+              <li>Add your domain (and <code>localhost</code>) to <strong>Authentication → Authorized Domains</strong>.</li>
+              <li>Set Firestore Security Rules — see the <strong>Instructions</strong> tab for starter rules. The default "deny all" rules block all writes.</li>
+            </ol>
+          </details>
+          <div class="button-row" style="margin-top:12px">
+            <button id="firebase-connect"   type="button">Connect Firebase</button>
+            <button id="firebase-use-local" type="button" class="secondary">Use Local Storage</button>
           </div>
           <p id="firebase-status" class="status">Firebase not connected.</p>
         </section>

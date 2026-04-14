@@ -320,6 +320,10 @@ td input { min-width: 84px; }
   background: #f9f2e6;
 }
 
+/* ── Excluded part rows ─────────────────────────────────────── */
+
+tr.part-excluded td { opacity: 0.38; }
+
 /* ── Misc helpers ───────────────────────────────────────────── */
 
 .help { margin-bottom: 10px; font-size: 0.9rem; }

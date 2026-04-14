@@ -98,20 +98,14 @@ const dom = {
   status: document.querySelector("#status"),
 
   // Firebase settings
-  firebaseApiKey:           document.querySelector("#firebase-api-key"),
-  firebaseAuthDomain:       document.querySelector("#firebase-auth-domain"),
-  firebaseProjectId:        document.querySelector("#firebase-project-id"),
-  firebaseAppId:            document.querySelector("#firebase-app-id"),
-  firebaseStorageBucket:    document.querySelector("#firebase-storage-bucket"),
-  firebaseMessagingSenderId: document.querySelector("#firebase-messaging-sender-id"),
-  firebaseSaveConfig:       document.querySelector("#firebase-save-config"),
-  firebaseConnect:          document.querySelector("#firebase-connect"),
-  firebaseUseLocal:         document.querySelector("#firebase-use-local"),
-  firebaseStatus:           document.querySelector("#firebase-status"),
+  firebaseConnect:  document.querySelector("#firebase-connect"),
+  firebaseUseLocal: document.querySelector("#firebase-use-local"),
+  firebaseStatus:   document.querySelector("#firebase-status"),
 
   // Model + Material settings
-  objFile:                 document.querySelector("#obj-file"),
-  modelUnits:              document.querySelector("#model-units"),
+  objFile:            document.querySelector("#obj-file"),
+  modelUnits:         document.querySelector("#model-units"),
+  unitsDetectedNote:  document.querySelector("#units-detected-note"),
   unitScale:               document.querySelector("#unit-scale"),
   thicknessOptions:        document.querySelector("#thickness-options"),
   globalThicknessOverride: document.querySelector("#global-thickness-override"),
@@ -178,7 +172,6 @@ init();
 function init() {
   wireEvents();
   seedDefaultProjectInputs();
-  restoreFirebaseConfigInputs();
   initTabs();
   initPartsSorting();
   updateStorageModeIndicator();
@@ -226,9 +219,8 @@ function wireEvents() {
   dom.resetView.addEventListener("click", resetViewerCamera);
 
   // Firebase
-  dom.firebaseSaveConfig.addEventListener("click", saveFirebaseConfigFromInputs);
-  dom.firebaseConnect.addEventListener("click",    connectFirebase);
-  dom.firebaseUseLocal.addEventListener("click",   useLocalStorageBackend);
+  dom.firebaseConnect.addEventListener("click",  connectFirebase);
+  dom.firebaseUseLocal.addEventListener("click", useLocalStorageBackend);
 
   // Modal
   dom.modalOk.addEventListener("click", hideModal);
@@ -338,6 +330,7 @@ function collectInputs() {
     planningLengthMaxFt: getPositiveNumber(dom.planningLengthMax.value, DEFAULTS.planningLengthMaxFt),
     inventoryInfinite: Boolean(dom.inventoryInfinite.checked),
     inventory: readInventoryRows(Boolean(dom.inventoryInfinite.checked)),
+    partOverrides: { ...state.partOverrides }, // snapshot — restored on project load
   };
 }
 
@@ -499,9 +492,11 @@ function clearProject() {
   state.planningResult  = null;
   state.inventoryResult = null;
 
-  dom.projectName.value  = "";
+  dom.projectName.value   = "";
   dom.projectSelect.value = "";
-  dom.objFile.value      = "";
+  dom.objFile.value       = "";
+  dom.modelUnits.disabled = false;
+  if (dom.unitsDetectedNote) dom.unitsDetectedNote.style.display = "none";
 
   seedDefaultProjectInputs();
 
@@ -722,31 +717,10 @@ async function refreshProjectSelect(selectedId = "") {
 // ─────────────────────────────────────────────────────────────────────────────
 // Firebase connection
 // ─────────────────────────────────────────────────────────────────────────────
-function restoreFirebaseConfigInputs() {
-  const config = readFirebaseConfigLocal();
-  if (!config) {
-    setFirebaseStatus("Firebase not connected.");
-    return;
-  }
-  dom.firebaseApiKey.value           = config.apiKey           || "";
-  dom.firebaseAuthDomain.value       = config.authDomain       || "";
-  dom.firebaseProjectId.value        = config.projectId        || "";
-  dom.firebaseAppId.value            = config.appId            || "";
-  dom.firebaseStorageBucket.value    = config.storageBucket    || "";
-  dom.firebaseMessagingSenderId.value = config.messagingSenderId || "";
-  setFirebaseStatus("Firebase config loaded. Click Connect Firebase.");
-}
-
-function readFirebaseConfigFromInputs() {
-  return {
-    apiKey:           dom.firebaseApiKey.value.trim(),
-    authDomain:       dom.firebaseAuthDomain.value.trim(),
-    projectId:        dom.firebaseProjectId.value.trim(),
-    appId:            dom.firebaseAppId.value.trim(),
-    storageBucket:    dom.firebaseStorageBucket.value.trim(),
-    messagingSenderId: dom.firebaseMessagingSenderId.value.trim(),
-  };
-}
+// ─── Firebase config helpers ───────────────────────────────────────────────
+// Config comes from DEFAULT_FIREBASE_CONFIG (hardcoded in app.js) or from a
+// previously-saved copy in localStorage (for users who configured it before
+// the hardcoded default was added).
 
 function validateFirebaseConfig(config) {
   const required = ["apiKey", "authDomain", "projectId", "appId"];
@@ -754,29 +728,26 @@ function validateFirebaseConfig(config) {
   return { ok: !missing.length, missing };
 }
 
-function saveFirebaseConfigFromInputs() {
-  const config = readFirebaseConfigFromInputs();
-  const validation = validateFirebaseConfig(config);
-  if (!validation.ok) {
-    setFirebaseStatus(`Missing required Firebase fields: ${validation.missing.join(", ")}`, "error");
-    return;
-  }
-  localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-  setFirebaseStatus("Firebase config saved locally for this browser.", "ok");
-}
-
 function readFirebaseConfigLocal() {
   try {
     const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch (error) {
-    console.error(error);
+  } catch (e) {
+    console.error(e);
     return null;
   }
 }
 
+/** Returns the best available Firebase config, or null if none is valid. */
+function getActiveFirebaseConfig() {
+  if (validateFirebaseConfig(DEFAULT_FIREBASE_CONFIG).ok) return DEFAULT_FIREBASE_CONFIG;
+  const saved = readFirebaseConfigLocal();
+  if (saved && validateFirebaseConfig(saved).ok) return saved;
+  return null;
+}
+
 function setFirebaseStatus(message, type = "") {
-  dom.firebaseStatus.className = `status ${type}`.trim();
+  dom.firebaseStatus.className  = `status ${type}`.trim();
   dom.firebaseStatus.textContent = message;
 }
 
@@ -786,27 +757,27 @@ async function connectFirebase() {
     return;
   }
 
-  const config = readFirebaseConfigFromInputs();
-  const validation = validateFirebaseConfig(config);
-  if (!validation.ok) {
-    setFirebaseStatus(`Missing required Firebase fields: ${validation.missing.join(", ")}`, "error");
+  const config = getActiveFirebaseConfig();
+  if (!config) {
+    setFirebaseStatus(
+      "No Firebase config found. Fill in DEFAULT_FIREBASE_CONFIG in app.js with your project credentials.",
+      "error"
+    );
     return;
   }
 
   try {
-    saveFirebaseConfigFromInputs();
-    const appName = `cutlist-${config.projectId}`;
-    let app = window.firebase.apps.find((item) => item.name === appName);
-    if (!app) {
-      app = window.firebase.initializeApp(config, appName);
-    }
+    // Persist config to localStorage so it survives if user edits app.js credentials later
+    localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
 
-    const auth = app.auth();
-    // Fix: use the UserCredential returned by signInAnonymously rather than
-    // reading auth.currentUser which may be null immediately after the call.
-    const credential = await auth.signInAnonymously();
-    const user = credential.user;
-    const db   = app.firestore();
+    const appName = `cutlist-${config.projectId}`;
+    let app = window.firebase.apps.find((a) => a.name === appName);
+    if (!app) app = window.firebase.initializeApp(config, appName);
+
+    const auth       = app.auth();
+    const credential = await auth.signInAnonymously(); // use returned credential to avoid race
+    const user       = credential.user;
+    const db         = app.firestore();
 
     state.firebase.connected = true;
     state.firebase.mode      = "firebase";
@@ -832,7 +803,9 @@ async function connectFirebase() {
     state.firebase.config    = null;
     updateStorageModeIndicator();
     updateSyncStatusIndicator();
-    setFirebaseStatus(`Firebase connect failed: ${error.message || "Unknown error"}`, "error");
+    const msg = `Firebase connect failed: ${error.message || "Unknown error"}`;
+    setFirebaseStatus(msg, "error");
+    setStatus(msg, "error"); // surface in the main status bar too
   }
 }
 
@@ -846,27 +819,17 @@ async function useLocalStorageBackend() {
 }
 
 async function autoConnectFirebase() {
-  const defaultValid = validateFirebaseConfig(DEFAULT_FIREBASE_CONFIG).ok;
-
-  if (defaultValid) {
-    // Populate inputs from hardcoded config, overriding whatever was in localStorage
-    dom.firebaseApiKey.value            = DEFAULT_FIREBASE_CONFIG.apiKey;
-    dom.firebaseAuthDomain.value        = DEFAULT_FIREBASE_CONFIG.authDomain;
-    dom.firebaseProjectId.value         = DEFAULT_FIREBASE_CONFIG.projectId;
-    dom.firebaseAppId.value             = DEFAULT_FIREBASE_CONFIG.appId;
-    dom.firebaseStorageBucket.value     = DEFAULT_FIREBASE_CONFIG.storageBucket || "";
-    dom.firebaseMessagingSenderId.value = DEFAULT_FIREBASE_CONFIG.messagingSenderId || "";
-  } else {
-    // Fall back to a previously saved config in localStorage
-    const saved = readFirebaseConfigLocal();
-    if (!saved || !validateFirebaseConfig(saved).ok) return;
-    // Inputs already populated by restoreFirebaseConfigInputs()
+  if (!getActiveFirebaseConfig()) {
+    setFirebaseStatus(
+      "Add your Firebase credentials to DEFAULT_FIREBASE_CONFIG in app.js to enable cloud sync."
+    );
+    return;
   }
-
   try {
     await connectFirebase();
   } catch (e) {
     console.warn("Firebase auto-connect failed:", e);
+    setStatus(`Firebase auto-connect failed: ${e.message || "Unknown error"}`, "error");
   }
 }
 
@@ -901,14 +864,21 @@ async function handleObjFile(event) {
   state.objText = await file.text();
 
   const detectedUnit = detectObjUnits(state.objText);
-  if (detectedUnit && dom.modelUnits.value !== detectedUnit) {
-    dom.modelUnits.value = detectedUnit;
+  if (detectedUnit) {
+    dom.modelUnits.value    = detectedUnit;
+    dom.modelUnits.disabled = true;
+    if (dom.unitsDetectedNote) {
+      dom.unitsDetectedNote.textContent = `Auto-detected from file`;
+      dom.unitsDetectedNote.style.display = "";
+    }
     setStatus(
-      `Loaded ${file.name}. Units detected from file: ${detectedUnit}. Click "Analyze Model" to parse parts.`,
+      `Loaded ${file.name}. Units auto-detected: ${detectedUnit} (locked). Click "Analyze Model" to parse parts.`,
       "ok"
     );
   } else {
-    setStatus(`Loaded ${file.name}. Click "Analyze Model" to parse parts.`, "ok");
+    dom.modelUnits.disabled = false;
+    if (dom.unitsDetectedNote) dom.unitsDetectedNote.style.display = "none";
+    setStatus(`Loaded ${file.name}. Set units manually, then click "Analyze Model".`, "ok");
   }
 
   const inputs = collectInputs();
@@ -1236,9 +1206,15 @@ function parseObjObjects(text, scaleToMm) {
       if (pt) points.push(pt);
     }
     if (!points.length) continue;
-    const [x, y, z] = getBoundingBoxDimensions(points);
+    const [rawX, rawY, rawZ] = getBoundingBoxDimensions(points);
+    const pcaDims = computePcaDimensions(points); // [length, width, thickness] sorted largest→smallest, or null
     const safeName = name || `Part ${counter}`;
-    parts.push({ id: `${slugify(safeName)}-${counter}`, name: safeName, xMm: x, yMm: y, zMm: z });
+    parts.push({
+      id:   `${slugify(safeName)}-${counter}`,
+      name: safeName,
+      xMm: rawX, yMm: rawY, zMm: rawZ, // AABB raw values — shown in hover tooltip
+      pcaDims, // true dimensions from PCA; null when < 4 vertices
+    });
     counter += 1;
   }
   return parts;
@@ -1283,6 +1259,10 @@ function initModelViewer() {
   scene.add(fillLight);
 
   const modelGroup = new THREE.Group();
+  // Fusion 360 exports OBJ with Z-up coordinates; Three.js uses Y-up.
+  // Rotating -90° around X maps the design's Z-up to Three.js's Y-up,
+  // correcting the 90° tilt that would otherwise appear in the viewer.
+  modelGroup.rotation.x = -Math.PI / 2;
   scene.add(modelGroup);
 
   const grid = new THREE.GridHelper(4000, 40, 0x9f8a70, 0xd7c8b0);
@@ -1509,6 +1489,83 @@ function getBoundingBoxDimensions(points) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PCA dimension analysis
+// For parts placed at an angle in the design, axis-aligned bounding boxes
+// (AABB) over-report dimensions. PCA finds the true principal axes of the
+// vertex cloud via Jacobi eigenvalue iteration and measures extents along
+// those axes — giving the actual board length/width/thickness regardless of
+// how the part is rotated in 3D space.
+// ─────────────────────────────────────────────────────────────────────────────
+function computePcaDimensions(points) {
+  const n = points.length;
+  if (n < 4) return null; // not enough points for meaningful PCA
+
+  // Centroid
+  let cx = 0, cy = 0, cz = 0;
+  for (const [x, y, z] of points) { cx += x; cy += y; cz += z; }
+  cx /= n; cy /= n; cz /= n;
+
+  // 3×3 symmetric covariance matrix
+  let c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0;
+  for (const [x, y, z] of points) {
+    const dx = x - cx, dy = y - cy, dz = z - cz;
+    c00 += dx * dx; c01 += dx * dy; c02 += dx * dz;
+    c11 += dy * dy; c12 += dy * dz; c22 += dz * dz;
+  }
+  c00 /= n; c01 /= n; c02 /= n; c11 /= n; c12 /= n; c22 /= n;
+
+  // Jacobi eigenvalue iteration — columns of V converge to eigenvectors
+  const M = [[c00, c01, c02], [c01, c11, c12], [c02, c12, c22]];
+  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+  for (let iter = 0; iter < 60; iter++) {
+    let maxAbs = 0, p = 0, q = 1;
+    for (let i = 0; i < 3; i++) {
+      for (let j = i + 1; j < 3; j++) {
+        if (Math.abs(M[i][j]) > maxAbs) { maxAbs = Math.abs(M[i][j]); p = i; q = j; }
+      }
+    }
+    if (maxAbs < 1e-12) break;
+
+    const theta = (M[q][q] - M[p][p]) / (2 * M[p][q]);
+    const t     = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(1 + theta * theta));
+    const c     = 1 / Math.sqrt(1 + t * t);
+    const s     = t * c;
+
+    const Mpp = M[p][p] - t * M[p][q];
+    const Mqq = M[q][q] + t * M[p][q];
+    M[p][p] = Mpp; M[q][q] = Mqq; M[p][q] = M[q][p] = 0;
+    for (let r = 0; r < 3; r++) {
+      if (r !== p && r !== q) {
+        const Mrp = c * M[r][p] - s * M[r][q];
+        const Mrq = s * M[r][p] + c * M[r][q];
+        M[r][p] = M[p][r] = Mrp; M[r][q] = M[q][r] = Mrq;
+      }
+    }
+    for (let r = 0; r < 3; r++) {
+      const Vrp = c * V[r][p] - s * V[r][q];
+      const Vrq = s * V[r][p] + c * V[r][q];
+      V[r][p] = Vrp; V[r][q] = Vrq;
+    }
+  }
+
+  // Project vertices onto each eigenvector (column of V); measure extents
+  const dims = [0, 1, 2].map((col) => {
+    const ev = [V[0][col], V[1][col], V[2][col]];
+    let minP = Infinity, maxP = -Infinity;
+    for (const [x, y, z] of points) {
+      const proj = (x - cx) * ev[0] + (y - cy) * ev[1] + (z - cz) * ev[2];
+      if (proj < minP) minP = proj;
+      if (proj > maxP) maxP = proj;
+    }
+    return maxP - minP;
+  });
+
+  dims.sort((a, b) => b - a); // largest → smallest: [length, width, thickness]
+  return dims.map((d) => Number(d.toFixed(3)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Part assignment
 // ─────────────────────────────────────────────────────────────────────────────
 function assignPartsForStock(rawParts, inputs, partOverrides) {
@@ -1523,6 +1580,7 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
         : Number(override.thicknessOverrideQuarter);
     const grainLock =
       typeof override.grainLock === "boolean" ? override.grainLock : inputs.defaultGrainLock;
+    const excluded = Boolean(override.excluded);
 
     const canonical       = canonicalizePartAxes(rawPart);
     const netLengthMm     = canonical.x.value;
@@ -1533,18 +1591,24 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
     const roughThicknessMm = netThicknessMm + inputs.milling.thicknessMm;
     const thicknessPlan   = resolveStockPlan(roughThicknessMm, quarters, overrideQuarter);
 
+    // Orientation string: PCA parts show "PCA-corrected"; AABB parts show axis mapping
+    const orientation = rawPart.pcaDims
+      ? "PCA-corrected (angled part)"
+      : `X<=${canonical.x.axis} (grain), Y<=${canonical.y.axis}, Z<=${canonical.z.axis}`;
+
     const base = {
       id: rawPart.id,
       name: rawPart.name,
-      rawMm: { x: rawPart.xMm, y: rawPart.yMm, z: rawPart.zMm },
+      rawMm: { x: rawPart.xMm, y: rawPart.yMm, z: rawPart.zMm }, // always AABB for hover display
       netLengthMm:      roundTo(netLengthMm, 2),
       netWidthMm:       roundTo(netWidthMm, 2),
       netThicknessMm:   roundTo(netThicknessMm, 2),
       roughLengthMm:    roundTo(roughLengthMm, 2),
       roughWidthMm:     roundTo(roughWidthMm, 2),
       roughThicknessMm: roundTo(roughThicknessMm, 2),
-      orientation: `X<=${canonical.x.axis} (grain), Y<=${canonical.y.axis}, Z<=${canonical.z.axis}`,
+      orientation,
       grainLock,
+      excluded,
       thicknessOverrideQuarter: overrideQuarter,
     };
 
@@ -1580,6 +1644,17 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
 }
 
 function canonicalizePartAxes(rawPart) {
+  // Use PCA dims when available: they give true board dimensions for angled parts.
+  // PCA dims are already sorted largest→smallest (length, width, thickness).
+  if (rawPart.pcaDims) {
+    const [l, w, t] = rawPart.pcaDims;
+    return {
+      x: { axis: "PC1", value: l },
+      y: { axis: "PC2", value: w },
+      z: { axis: "PC3", value: t },
+    };
+  }
+  // Fallback: AABB sort (only for parts with < 4 vertices)
   const dims = [
     { axis: "X", value: rawPart.xMm },
     { axis: "Y", value: rawPart.yMm },
@@ -1680,6 +1755,7 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
 
   const blanks = [];
   for (const part of parts) {
+    if (part.excluded) continue; // user explicitly excluded from planning
     if (part.status !== "ok" || !part.stockQuarter || part.layers < 1) {
       unmetParts.push({
         partId: part.id,
@@ -1708,20 +1784,40 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
 
   for (const [quarterKey, group] of grouped.entries()) {
     const quarter = Number(quarterKey);
-    const types   = boardCatalog
+    let types = boardCatalog
       .filter((row) => row.thicknessQuarter === quarter)
       .map((row, index) => ({
         ...row,
-        typeId:    `${quarter}-${row.widthIn}-${row.lengthFt}-${index}`,
-        remaining: row.quantity == null ? Infinity : row.quantity,
+        typeId:      `${quarter}-${row.widthIn}-${row.lengthFt}-${index}`,
+        remaining:   row.quantity == null ? Infinity : row.quantity,
+        upsized:     false,
+        neededQuarter: quarter,
       }));
+
+    // When no exact-thickness boards are in inventory, try the next thicker quarter.
+    // Using thicker stock is wasteful but better than leaving parts unmet.
+    if (!types.length) {
+      const allQuarters = [...new Set(boardCatalog.map((r) => r.thicknessQuarter))].sort((a, b) => a - b);
+      const nextThicker = allQuarters.find((q) => q > quarter);
+      if (nextThicker != null) {
+        types = boardCatalog
+          .filter((row) => row.thicknessQuarter === nextThicker)
+          .map((row, index) => ({
+            ...row,
+            typeId:        `${nextThicker}-${row.widthIn}-${row.lengthFt}-${index}`,
+            remaining:     row.quantity == null ? Infinity : row.quantity,
+            upsized:       true,
+            neededQuarter: quarter,
+          }));
+      }
+    }
 
     if (!types.length) {
       for (const blank of group) {
         unmetParts.push({
           partId:   blank.partId,
           partName: blank.name,
-          reason:   `No catalog/inventory board type for ${quarter}/4 stock.`,
+          reason:   `No catalog/inventory board type for ${quarter}/4 stock (no thicker alternative available).`,
         });
       }
       continue;
@@ -1735,11 +1831,13 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
 
     const openBoards = [];
 
-    for (const blank of sorted) {
+    for (let i = 0; i < sorted.length; i++) {
+      const blank    = sorted[i];
+      const remaining = sorted.slice(i); // used for density scoring
       let placement = findBestPlacementAcrossBoards(openBoards, blank, spacingMm);
 
       if (!placement) {
-        const boardType = chooseBoardType(types, blank, spacingMm, endTrimMm);
+        const boardType = chooseBoardType(types, blank, spacingMm, endTrimMm, remaining);
         if (!boardType) {
           unmetParts.push({
             partId:   blank.partId,
@@ -1750,6 +1848,10 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
         }
         boardType.remaining -= 1;
         const board = createBoardFromType(boardType, `B${boardCounter++}`, endTrimMm);
+        if (boardType.upsized) {
+          board.upsized      = true;
+          board.neededQuarter = boardType.neededQuarter;
+        }
         openBoards.push(board);
         boards.push(board);
         placement = findBestPlacementOnBoard(board, blank, spacingMm);
@@ -1764,7 +1866,6 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
         continue;
       }
 
-      // Fix: placeBlankOnBoard takes exactly 3 args; spacingMm is already baked into usedW/usedL
       placeBlankOnBoard(placement.board, blank, placement);
     }
   }
@@ -1796,8 +1897,10 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
     )
   );
 
+  const upsizedBoards = boards.filter((b) => b.upsized);
+
   return {
-    boards, unmetParts, boardUsage,
+    boards, unmetParts, upsizedBoards, boardUsage,
     stockAreaMm2, usedAreaMm2, yieldPercent,
     totalBoardFeet, estimatedCost, stockVolumeM3,
   };
@@ -1823,26 +1926,55 @@ function createBoardFromType(type, id, endTrimMm) {
   };
 }
 
-function chooseBoardType(types, blank, spacingMm, endTrimMm) {
-  let best = null;
+// chooseBoardType — density-based scoring
+// Instead of minimising waste-per-blank (which always picks the smallest board),
+// we score each board type by how much of the remaining work can potentially fit
+// on it. This naturally prefers longer/wider boards when many blanks remain,
+// producing better yield across the full job.
+function chooseBoardType(types, blank, spacingMm, endTrimMm, remainingBlanks = []) {
+  const eligible = [];
+
   for (const type of types) {
     if (type.remaining <= 0) continue;
     const usableLengthMm = type.lengthMm - endTrimMm;
     if (usableLengthMm <= EPSILON) continue;
 
-    const options = buildBlankOrientationOptions(blank);
-    let bestFitScore = null;
-    for (const option of options) {
-      if (option.widthMm  + spacingMm > type.widthMm    + EPSILON) continue;
-      if (option.lengthMm + spacingMm > usableLengthMm  + EPSILON) continue;
-      const areaWaste = type.widthMm * usableLengthMm - option.widthMm * option.lengthMm;
-      const sideWaste = (type.widthMm - option.widthMm) + (usableLengthMm - option.lengthMm);
-      const score     = areaWaste + sideWaste * 10;
-      if (bestFitScore == null || score < bestFitScore) bestFitScore = score;
-    }
-    if (bestFitScore == null) continue;
-    if (!best || bestFitScore < best.score) best = { score: bestFitScore, type };
+    // Current blank must fit — otherwise this type is not eligible
+    const fits = buildBlankOrientationOptions(blank).some(
+      (opt) =>
+        opt.widthMm  + spacingMm <= type.widthMm    + EPSILON &&
+        opt.lengthMm + spacingMm <= usableLengthMm  + EPSILON
+    );
+    if (!fits) continue;
+    eligible.push({ type, usableLengthMm });
   }
+
+  if (!eligible.length) return null;
+
+  let best = null;
+  for (const { type, usableLengthMm } of eligible) {
+    const boardArea = type.widthMm * usableLengthMm;
+
+    // Sum area of remaining blanks (including current) that could fit on this board type
+    let fittableArea = 0;
+    for (const rb of remainingBlanks) {
+      if (
+        buildBlankOrientationOptions(rb).some(
+          (opt) =>
+            opt.widthMm  + spacingMm <= type.widthMm    + EPSILON &&
+            opt.lengthMm + spacingMm <= usableLengthMm  + EPSILON
+        )
+      ) {
+        fittableArea += rb.widthMm * rb.lengthMm;
+      }
+    }
+
+    // Fill ratio: how well remaining work fills this board. Capped at 1 (can't overfill).
+    const fillRatio = Math.min(1, fittableArea / boardArea);
+
+    if (!best || fillRatio > best.fillRatio) best = { fillRatio, type };
+  }
+
   return best?.type ?? null;
 }
 
@@ -2035,19 +2167,20 @@ function renderYardSuggestions(suggestions) {
 }
 
 function renderPartsSummary(parts) {
-  const valid   = parts.filter((p) => p.status === "ok").length;
-  const invalid = parts.length - valid;
-  const layers  = sum(parts.map((p) => p.layers || 0));
+  const excluded = parts.filter((p) => p.excluded).length;
+  const active   = parts.filter((p) => !p.excluded);
+  const valid    = active.filter((p) => p.status === "ok").length;
+  const invalid  = active.length - valid;
+  const layers   = sum(active.map((p) => p.layers || 0));
 
   dom.partsSummary.innerHTML = "";
-  for (const text of [
+  const boxes = [
     `${parts.length} total parts detected`,
-    `${valid} parts with valid stock assignments`,
-    `${invalid} parts unassigned`,
+    `${active.length} active parts (${valid} with valid stock, ${invalid} unassigned)`,
     `${layers} total rough blanks including lamination layers`,
-  ]) {
-    dom.partsSummary.append(summaryBox(text));
-  }
+  ];
+  if (excluded) boxes.push(`${excluded} part(s) excluded from planning`);
+  for (const text of boxes) dom.partsSummary.append(summaryBox(text));
 }
 
 function renderPartsTable(parts, inputs) {
@@ -2058,6 +2191,30 @@ function renderPartsTable(parts, inputs) {
 
   for (const part of sortedParts) {
     const row = document.createElement("tr");
+    if (part.excluded) row.classList.add("part-excluded");
+
+    // Exclude checkbox (first column)
+    const excludeCell  = document.createElement("td");
+    const excludeInput = document.createElement("input");
+    excludeInput.type    = "checkbox";
+    excludeInput.checked = Boolean(part.excluded);
+    excludeInput.title   = "Exclude this part from planning calculations";
+    excludeInput.addEventListener("change", () => {
+      const current = state.partOverrides[part.id] || {};
+      if (excludeInput.checked) {
+        state.partOverrides[part.id] = { ...current, excluded: true };
+      } else {
+        delete current.excluded;
+        if (Object.keys(current).length) {
+          state.partOverrides[part.id] = current;
+        } else {
+          delete state.partOverrides[part.id];
+        }
+      }
+      updatePartsFromOverrides();
+    });
+    excludeCell.append(excludeInput);
+    row.append(excludeCell);
 
     appendTextCell(row, part.name,
       `Raw X=${formatMm(part.rawMm.x)}, Raw Y=${formatMm(part.rawMm.y)}, Raw Z=${formatMm(part.rawMm.z)}`);
@@ -2220,6 +2377,20 @@ function renderPlanSummary(target, result, title, pricePerBoardFoot) {
     ),
     summaryBox(`Estimated stock volume: ${formatNumber(result.stockVolumeM3, 4)} m³`)
   );
+
+  if (result.upsizedBoards?.length) {
+    const groups = new Map();
+    for (const b of result.upsizedBoards) {
+      const k = `${b.neededQuarter}/4→${b.thicknessQuarter}/4`;
+      groups.set(k, (groups.get(k) || 0) + 1);
+    }
+    const detail = [...groups.entries()].map(([k, n]) => `${n}× ${k}`).join(", ");
+    root.append(summaryBox(
+      `${result.upsizedBoards.length} board(s) use thicker-than-needed stock (inventory gap): ${detail}. ` +
+      `Extra thickness will be milled off — wasteful but parts will fit.`,
+      "warning"
+    ));
+  }
 
   if (result.unmetParts.length) {
     root.append(summaryBox(`${result.unmetParts.length} part(s) are currently unmet`, "warning"));
