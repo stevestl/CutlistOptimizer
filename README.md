@@ -53,12 +53,13 @@ Part orientation is fixed as requested:
    - MaxRects-style nesting heuristic.
    - Respects grain lock (prevents 90° rotation when locked).
    - Packs rough blanks, including lamination layer expansion.
+   - Board diagrams displayed horizontally — parts labelled left-to-right.
 
 4. **Lumber-yard recalculation**
   - Re-optimizes against real inventory rows.
    - Optional infinite quantity mode (inventory rows define sizes only).
-  - Reports unmet parts and additional stock suggestions.
-  - Suggests pre-cuts for long boards when sub-6' carry cuts are possible.
+   - Reports unmet parts and additional stock suggestions.
+   - Boards exceeding the planning **Length max** are flagged for yard pre-cuts.
 
 5. **Costing**
    - Total board feet calculation.
@@ -109,21 +110,46 @@ You can switch between backends in the **Cloud Sync (Firebase)** section of the 
    - storage icon switches to `C`
    - sync icon turns green
 
-### Recommended Firestore Security Rules (starter)
+### Recommended Firestore Security Rules
 
-Use these as a base (adjust as needed):
+Use these rules to support both user roles and project ownership:
 
 ```txt
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userDoc().role == 'admin';
+    }
+
+    // User profile documents — role field is write-protected from clients
+    match /users/{uid} {
+      allow read:   if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+                    && request.resource.data.role == 'standard'
+                    && request.resource.data.email == request.auth.token.email;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Projects — owned by the creating user
     match /projects/{projectId} {
-      allow read: if request.auth != null
-        && request.auth.uid == resource.data.ownerUid;
-      allow update, delete: if request.auth != null
-        && request.auth.uid == resource.data.ownerUid;
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.ownerUid;
+      allow read:          if isSignedIn() && request.auth.uid == resource.data.ownerUid;
+      allow update, delete: if isSignedIn() && request.auth.uid == resource.data.ownerUid;
+      allow create:         if isSignedIn() && request.auth.uid == request.resource.data.ownerUid;
     }
   }
 }
@@ -131,7 +157,62 @@ service cloud.firestore {
 
 Notes:
 - The app writes `ownerUid` on each project document.
+- The `create` rule for `/users/{uid}` prevents any client from self-assigning the `admin` role.
 - If you already have data without `ownerUid`, add it before enforcing strict rules.
+
+## Firebase App Check
+
+App Check prevents unauthorized clients from using your Firebase backend.
+
+### Web setup (reCAPTCHA v3)
+
+1. Firebase Console → **App Check** → select your web app → choose **reCAPTCHA v3**.
+2. [Google reCAPTCHA Admin](https://www.google.com/recaptcha/admin) → **+ Create** → type **Score based (v3)**.
+   - Add your domains: `yourusername.github.io` and `localhost`.
+   - Copy the **Site Key**.
+3. In `app.js`, paste the site key into `RECAPTCHA_SITE_KEY`:
+   ```js
+   const RECAPTCHA_SITE_KEY = "6Lc...your-key-here";
+   ```
+4. Firebase Console → App Check → your app → **overflow menu → Monitor**.
+   Watch traffic for ~1 week, then switch to **Enforce** once legitimate traffic is confirmed.
+
+### Cordova (future)
+Replace `ReCaptchaV3Provider` with the native Play Integrity (Android) or App Attest (iOS) provider in the Cordova build. Leave `RECAPTCHA_SITE_KEY` empty in native builds.
+
+### Development / local testing
+Leave `RECAPTCHA_SITE_KEY = ""` to skip App Check entirely during development. To test with App Check locally, add a debug token: Firebase Console → App Check → your app → **Add debug token**, then set `self.FIREBASE_APPCHECK_DEBUG_TOKEN = "your-debug-token"` before the Firebase scripts load in `index.html`.
+
+## User Accounts + Roles
+
+The app supports two user types:
+
+| Role | Created via | Access |
+|------|-------------|--------|
+| **Standard** | Web app sign-up | All tabs except Settings |
+| **Admin** | Firebase Console (manual promotion) | All tabs including Settings |
+
+### Signing in
+
+Click the **avatar button** (upper-right corner) to open the account menu. From there you can:
+- **Sign In** — log in with an existing email/password account
+- **Create Account** — register a new Standard account
+- **Forgot password?** — receive a password reset email
+- **Sign Out** — log out
+
+### Creating an Admin account
+
+All accounts created through the web app are Standard users. To promote a user to Admin:
+
+1. Sign in to the **Firebase Console** → your project → **Firestore Database**.
+2. Browse to the `users` collection.
+3. Find the document whose `email` matches the user you want to promote.
+   - If no document exists yet, have that user sign in once to trigger document creation.
+4. Click the document → click the `role` field → change `"standard"` to `"admin"` → **Update**.
+5. The change takes effect the next time that user signs in (or on their next page load).
+
+> **Security note:** The Firestore rules prevent any client from writing their own `role` field.
+> Only the Firebase Console (service-account level) can promote users to Admin.
 
 ## Hosting on GitHub Pages
 

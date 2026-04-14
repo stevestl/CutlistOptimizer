@@ -15,6 +15,29 @@ const DEFAULT_FIREBASE_CONFIG = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Firebase App Check
+// Protects your backend from abuse and unauthorized clients.
+//
+// Web (GitHub Pages):
+//   1. Firebase Console → App Check → register your web app → reCAPTCHA v3
+//   2. Google reCAPTCHA Admin (g.co/recaptcha/admin) → create v3 site key
+//      for your domain (e.g. yourusername.github.io) AND localhost
+//   3. Paste the site key below.
+//
+// App Check enforcement:
+//   Start in MONITOR mode (Firebase Console → App Check → Apps → overflow menu).
+//   Watch traffic for ~1 week before switching to ENFORCE.  Enforcing too early
+//   can lock out legitimate users if something is misconfigured.
+//
+// Cordova (future):
+//   Replace ReCaptchaV3Provider with the native Play Integrity / App Attest
+//   provider in the Cordova build.  The web key is ignored by native builds.
+//
+// Leave RECAPTCHA_SITE_KEY as "" to skip App Check (e.g. during development).
+// ─────────────────────────────────────────────────────────────────────────────
+const RECAPTCHA_SITE_KEY = "6LehgrcsAAAAABkZHwD2M9fngmCtW7YptYUj7UsG";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const STORAGE_KEY        = "cutlist-optimizer-projects-v2";
@@ -42,7 +65,6 @@ const DEFAULTS = {
   planningWidthMaxIn:  12,
   planningLengthMinFt: 6,
   planningLengthMaxFt: 10,
-  maxTransportLengthFt: 12,
   // Default inventory shown only on very first load (new project starts empty)
   inventory: [
     { thicknessQuarter: 4, widthIn: 8, lengthFt: 8,  quantity: 20 },
@@ -72,6 +94,8 @@ const state = {
     db: null,
     user: null,
     config: null,
+    role: null,      // "standard" | "admin" | null
+    authReady: false, // true after onAuthStateChanged fires once
   },
 };
 
@@ -87,6 +111,7 @@ const dom = {
   tabContents:     [...document.querySelectorAll(".tab-content")],
 
   // Project
+  projectSection: document.querySelector("#project-section"),
   projectName:  document.querySelector("#project-name"),
   saveProject:  document.querySelector("#save-project"),
   newProject:   document.querySelector("#new-project"),
@@ -132,9 +157,6 @@ const dom = {
   planningLengthMin: document.querySelector("#planning-length-min"),
   planningLengthMax: document.querySelector("#planning-length-max"),
 
-  // Transport
-  maxTransportLength: document.querySelector("#max-transport-length"),
-
   // Action buttons
   analyze:       document.querySelector("#analyze"),
   plan:          document.querySelector("#plan"),
@@ -170,6 +192,44 @@ const dom = {
   modalMsg:    document.querySelector("#modal-msg"),
   modalOk:     document.querySelector("#modal-ok"),
   modalCancel: document.querySelector("#modal-cancel"),
+
+  // Auth modals
+  authLoginModal:          document.querySelector("#auth-login-modal"),
+  authLoginEmail:          document.querySelector("#auth-login-email"),
+  authLoginPassword:       document.querySelector("#auth-login-password"),
+  authLoginSubmit:         document.querySelector("#auth-login-submit"),
+  authLoginCancel:         document.querySelector("#auth-login-cancel"),
+  authLoginError:          document.querySelector("#auth-login-error"),
+  authShowReset:           document.querySelector("#auth-show-reset"),
+  authShowSignup:          document.querySelector("#auth-show-signup"),
+
+  authSignupModal:         document.querySelector("#auth-signup-modal"),
+  authSignupEmail:         document.querySelector("#auth-signup-email"),
+  authSignupPassword:      document.querySelector("#auth-signup-password"),
+  authSignupConfirm:       document.querySelector("#auth-signup-confirm"),
+  authSignupSubmit:        document.querySelector("#auth-signup-submit"),
+  authSignupCancel:        document.querySelector("#auth-signup-cancel"),
+  authSignupError:         document.querySelector("#auth-signup-error"),
+  authShowLoginFromSignup: document.querySelector("#auth-show-login-from-signup"),
+
+  authResetModal:          document.querySelector("#auth-reset-modal"),
+  authResetEmail:          document.querySelector("#auth-reset-email"),
+  authResetSubmit:         document.querySelector("#auth-reset-submit"),
+  authResetCancel:         document.querySelector("#auth-reset-cancel"),
+  authResetMessage:        document.querySelector("#auth-reset-message"),
+
+  // User menu (topbar)
+  userMenuWrap:       document.querySelector("#user-menu-wrap"),
+  userMenuBtn:        document.querySelector("#user-menu-btn"),
+  userAvatarSilhouette: document.querySelector("#user-avatar-silhouette"),
+  userAvatarInitials:   document.querySelector("#user-avatar-initials"),
+  userMenuDropdown:   document.querySelector("#user-menu-dropdown"),
+  userMenuInfo:       document.querySelector("#user-menu-info"),
+  userMenuEmail:      document.querySelector("#user-menu-email"),
+  userMenuRole:       document.querySelector("#user-menu-role"),
+  userMenuDivider:    document.querySelector("#user-menu-divider"),
+  userMenuSignin:     document.querySelector("#user-menu-signin"),
+  userMenuSignout:    document.querySelector("#user-menu-signout"),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,9 +244,12 @@ function init() {
   initPartsSorting();
   updateStorageModeIndicator();
   updateSyncStatusIndicator();
+  updateUserMenuUI();           // show unauthenticated state immediately
+  updateSettingsTabVisibility(); // hide Settings tab until admin confirmed
+  updateRecalcButtonState();    // ghost Recalculate until a plan exists
   refreshProjectSelect();
   initModelViewer();
-  autoConnectFirebase(); // async, fires independently
+  initAuth(); // async — sets up onAuthStateChanged listener
 }
 
 function wireEvents() {
@@ -226,9 +289,35 @@ function wireEvents() {
   // Viewer
   dom.resetView.addEventListener("click", resetViewerCamera);
 
-  // Firebase
+  // Firebase (Settings tab — admin only)
   dom.firebaseConnect.addEventListener("click",  connectFirebase);
   dom.firebaseUseLocal.addEventListener("click", useLocalStorageBackend);
+
+  // User menu toggle
+  dom.userMenuBtn.addEventListener("click", toggleUserMenu);
+  document.addEventListener("click", (e) => {
+    if (!dom.userMenuWrap.contains(e.target)) closeUserMenu();
+  });
+  dom.userMenuSignin.addEventListener("click",  () => { closeUserMenu(); openLoginModal(); });
+  dom.userMenuSignout.addEventListener("click", () => { closeUserMenu(); signOutUser(); });
+
+  // Login modal
+  dom.authLoginSubmit.addEventListener("click",   handleLogin);
+  dom.authLoginCancel.addEventListener("click",   closeAllAuthModals);
+  dom.authShowReset.addEventListener("click",     () => { closeAllAuthModals(); openResetModal(); });
+  dom.authShowSignup.addEventListener("click",    () => { closeAllAuthModals(); openSignupModal(); });
+  dom.authLoginPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+
+  // Signup modal
+  dom.authSignupSubmit.addEventListener("click",  handleSignup);
+  dom.authSignupCancel.addEventListener("click",  closeAllAuthModals);
+  dom.authShowLoginFromSignup.addEventListener("click", () => { closeAllAuthModals(); openLoginModal(); });
+  dom.authSignupConfirm.addEventListener("keydown", (e) => { if (e.key === "Enter") handleSignup(); });
+
+  // Reset modal
+  dom.authResetSubmit.addEventListener("click",  handlePasswordReset);
+  dom.authResetCancel.addEventListener("click",  closeAllAuthModals);
+  dom.authResetEmail.addEventListener("keydown", (e) => { if (e.key === "Enter") handlePasswordReset(); });
 
   // Modal
   dom.modalOk.addEventListener("click",     () => resolveModal(true));
@@ -321,7 +410,6 @@ function seedDefaultProjectInputs() {
   dom.planningWidthMax.value  = String(DEFAULTS.planningWidthMaxIn);
   dom.planningLengthMin.value = String(DEFAULTS.planningLengthMinFt);
   dom.planningLengthMax.value = String(DEFAULTS.planningLengthMaxFt);
-  dom.maxTransportLength.value = String(DEFAULTS.maxTransportLengthFt);
 
   // Default inventory rows shown only on first/initial load
   dom.inventoryInfinite.checked = true;
@@ -361,7 +449,6 @@ function collectInputs() {
     planningWidthMaxIn:  getPositiveNumber(dom.planningWidthMax.value,  DEFAULTS.planningWidthMaxIn),
     planningLengthMinFt: getPositiveNumber(dom.planningLengthMin.value, DEFAULTS.planningLengthMinFt),
     planningLengthMaxFt: getPositiveNumber(dom.planningLengthMax.value, DEFAULTS.planningLengthMaxFt),
-    maxTransportLengthFt: getPositiveNumber(dom.maxTransportLength.value, DEFAULTS.maxTransportLengthFt),
     inventoryInfinite: Boolean(dom.inventoryInfinite.checked),
     inventory: readInventoryRows(Boolean(dom.inventoryInfinite.checked)),
     partOverrides: { ...state.partOverrides }, // snapshot — restored on project load
@@ -405,7 +492,7 @@ function restoreInputs(inputs) {
     dom.planningLengthMin.value = String(inputs.planningLengthMinFt ?? DEFAULTS.planningLengthMinFt);
     dom.planningLengthMax.value = String(inputs.planningLengthMaxFt ?? DEFAULTS.planningLengthMaxFt);
   }
-  dom.maxTransportLength.value = String(inputs.maxTransportLengthFt ?? DEFAULTS.maxTransportLengthFt);
+  // maxTransportLengthFt was merged into planningLengthMaxFt — silently ignored on old project loads
 
   dom.inventoryInfinite.checked =
     typeof inputs.inventoryInfinite === "boolean" ? inputs.inventoryInfinite : true;
@@ -548,12 +635,17 @@ function clearProject() {
   setStatus("Started a new project with default settings.", "ok");
 }
 
+function updateRecalcButtonState() {
+  dom.inventoryPlan.disabled = !state.planningResult;
+}
+
 function clearResults() {
   dom.planningSummary.innerHTML       = "";
   dom.planningLayouts.innerHTML       = "";
   dom.inventorySummary.innerHTML      = "";
   dom.inventoryLayouts.innerHTML      = "";
   dom.lumberYardSuggestions.innerHTML = "";
+  updateRecalcButtonState();
 }
 
 async function saveProject() {
@@ -867,15 +959,302 @@ async function useLocalStorageBackend() {
   setStatus("Switched project storage backend to local browser storage.", "ok");
 }
 
-async function autoConnectFirebase() {
-  if (!getActiveFirebaseConfig()) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth — initialization + state listener
+// ─────────────────────────────────────────────────────────────────────────────
+
+function initAuth() {
+  if (!window.firebase) return;
+  const config = getActiveFirebaseConfig();
+  if (!config) {
     setFirebaseStatus(
       "Add your Firebase credentials to DEFAULT_FIREBASE_CONFIG in app.js to enable cloud sync."
     );
     return;
   }
-  // Email/password auth requires the user to explicitly sign in — no silent auto-connect.
-  setFirebaseStatus("Enter your email and password in Settings, then click Connect Firebase.");
+
+  const appName = `cutlist-${config.projectId}`;
+  let app = window.firebase.apps.find((a) => a.name === appName);
+  if (!app) app = window.firebase.initializeApp(config, appName);
+
+  // ── App Check (must activate before auth/firestore are used) ──────────────
+  if (RECAPTCHA_SITE_KEY && window.firebase.appCheck) {
+    try {
+      app.appCheck().activate(
+        new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
+        true // auto-refresh tokens
+      );
+      console.info("Firebase App Check activated (reCAPTCHA v3).");
+    } catch (err) {
+      // Non-fatal: App Check failure should not block the app from loading.
+      // In MONITOR mode Firebase still allows traffic; in ENFORCE mode it won't.
+      console.warn("App Check activation failed:", err.message);
+    }
+  }
+
+  const auth = app.auth();
+  const db   = app.firestore();
+
+  // Store references immediately so the Settings-tab connect button still works
+  state.firebase.app    = app;
+  state.firebase.auth   = auth;
+  state.firebase.db     = db;
+  state.firebase.config = config;
+
+  // Single source-of-truth for auth state
+  auth.onAuthStateChanged((user) => handleAuthStateChange(user));
+}
+
+async function handleAuthStateChange(user) {
+  state.firebase.authReady = true;
+
+  if (user) {
+    state.firebase.user      = user;
+    state.firebase.connected = true;
+    state.firebase.mode      = "firebase";
+
+    const role = await fetchOrCreateUserRole(user);
+    state.firebase.role = role;
+  } else {
+    state.firebase.user      = null;
+    state.firebase.connected = false;
+    state.firebase.mode      = "local";
+    state.firebase.role      = null;
+
+    // If Firebase is configured, nudge the user to sign in for cloud sync
+    if (getActiveFirebaseConfig()) {
+      setFirebaseStatus(
+        "Sign in with the account button (↑) to sync projects to the cloud."
+      );
+    }
+  }
+
+  updateStorageModeIndicator();
+  updateSyncStatusIndicator();
+  updateUserMenuUI();
+  updateSettingsTabVisibility();
+  updateProjectSectionVisibility();
+  await refreshProjectSelect();
+}
+
+async function fetchOrCreateUserRole(user) {
+  try {
+    const ref  = state.firebase.db.collection("users").doc(user.uid);
+    const snap = await ref.get();
+    if (snap.exists) return snap.data().role || "standard";
+
+    // First sign-in: create document with role = standard
+    await ref.set({
+      email:       user.email,
+      displayName: user.displayName || null,
+      role:        "standard",
+      createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    return "standard";
+  } catch (err) {
+    console.error("fetchOrCreateUserRole failed:", err.code, err.message);
+    setFirebaseStatus(
+      `Could not read/write user profile: ${err.message} — check Firestore security rules.`,
+      "error"
+    );
+    return "standard"; // safe fallback — app continues working
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth — user menu UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateUserMenuUI() {
+  const user     = state.firebase.user;
+  const role     = state.firebase.role;
+  const signedIn = !!user;
+
+  // Avatar: silhouette when signed out, initials when signed in
+  dom.userAvatarSilhouette.classList.toggle("hidden", signedIn);
+  dom.userAvatarInitials.classList.toggle("hidden", !signedIn);
+  if (signedIn && user.email) {
+    dom.userAvatarInitials.textContent = user.email.charAt(0).toUpperCase();
+  }
+  dom.userMenuBtn.classList.toggle("unauthenticated", !signedIn);
+
+  // Dropdown info
+  dom.userMenuInfo.classList.toggle("hidden",    !signedIn);
+  dom.userMenuDivider.classList.toggle("hidden", !signedIn);
+  if (signedIn) {
+    dom.userMenuEmail.textContent = user.email || "";
+    dom.userMenuRole.textContent  = role || "standard";
+    dom.userMenuRole.classList.toggle("admin", role === "admin");
+  }
+
+  // Signin / signout
+  dom.userMenuSignin.classList.toggle("hidden",  signedIn);
+  dom.userMenuSignout.classList.toggle("hidden", !signedIn);
+}
+
+function toggleUserMenu() {
+  const willOpen = dom.userMenuDropdown.classList.toggle("hidden") === false;
+  dom.userMenuBtn.setAttribute("aria-expanded", String(willOpen));
+}
+
+function closeUserMenu() {
+  dom.userMenuDropdown.classList.add("hidden");
+  dom.userMenuBtn.setAttribute("aria-expanded", "false");
+}
+
+function updateSettingsTabVisibility() {
+  const isAdmin = state.firebase.role === "admin";
+  dom.tabSettings.classList.toggle("hidden", !isAdmin);
+  // If currently on the Settings tab but no longer admin, redirect to Planning
+  if (!isAdmin && state.activeTab === "settings") {
+    switchTab("planning");
+  }
+}
+
+function updateProjectSectionVisibility() {
+  const signedIn = !!state.firebase.user;
+  dom.projectSection.classList.toggle("hidden", !signedIn);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth — modal helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function openLoginModal() {
+  closeAllAuthModals();
+  dom.authLoginEmail.value    = "";
+  dom.authLoginPassword.value = "";
+  setAuthError(dom.authLoginError, "");
+  dom.authLoginModal.classList.remove("hidden");
+  dom.authLoginEmail.focus();
+}
+
+function openSignupModal() {
+  closeAllAuthModals();
+  dom.authSignupEmail.value    = "";
+  dom.authSignupPassword.value = "";
+  dom.authSignupConfirm.value  = "";
+  setAuthError(dom.authSignupError, "");
+  dom.authSignupModal.classList.remove("hidden");
+  dom.authSignupEmail.focus();
+}
+
+function openResetModal() {
+  closeAllAuthModals();
+  dom.authResetEmail.value = "";
+  setAuthMessage(dom.authResetMessage, "", "");
+  dom.authResetModal.classList.remove("hidden");
+  dom.authResetEmail.focus();
+}
+
+function closeAllAuthModals() {
+  dom.authLoginModal.classList.add("hidden");
+  dom.authSignupModal.classList.add("hidden");
+  dom.authResetModal.classList.add("hidden");
+}
+
+function setAuthError(el, msg) {
+  el.textContent = msg;
+  el.classList.toggle("hidden", !msg);
+}
+
+function setAuthMessage(el, msg, type) {
+  el.textContent = msg;
+  el.className   = `status ${type}`.trim();
+  el.classList.toggle("hidden", !msg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth — action handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleLogin() {
+  const email = dom.authLoginEmail.value.trim();
+  const pass  = dom.authLoginPassword.value;
+  if (!email || !pass) {
+    setAuthError(dom.authLoginError, "Enter your email and password.");
+    return;
+  }
+  dom.authLoginSubmit.disabled = true;
+  try {
+    await state.firebase.auth.signInWithEmailAndPassword(email, pass);
+    // onAuthStateChanged fires → handleAuthStateChange() does the rest
+    closeAllAuthModals();
+  } catch (err) {
+    setAuthError(dom.authLoginError, friendlyAuthError(err.code));
+  } finally {
+    dom.authLoginSubmit.disabled = false;
+  }
+}
+
+async function handleSignup() {
+  const email   = dom.authSignupEmail.value.trim();
+  const pass    = dom.authSignupPassword.value;
+  const confirm = dom.authSignupConfirm.value;
+  if (!email || !pass) {
+    setAuthError(dom.authSignupError, "Enter an email and password.");
+    return;
+  }
+  if (pass !== confirm) {
+    setAuthError(dom.authSignupError, "Passwords do not match.");
+    return;
+  }
+  if (pass.length < 6) {
+    setAuthError(dom.authSignupError, "Password must be at least 6 characters.");
+    return;
+  }
+  dom.authSignupSubmit.disabled = true;
+  try {
+    await state.firebase.auth.createUserWithEmailAndPassword(email, pass);
+    // onAuthStateChanged fires → fetchOrCreateUserRole() writes role:standard
+    closeAllAuthModals();
+  } catch (err) {
+    setAuthError(dom.authSignupError, friendlyAuthError(err.code));
+  } finally {
+    dom.authSignupSubmit.disabled = false;
+  }
+}
+
+async function handlePasswordReset() {
+  const email = dom.authResetEmail.value.trim();
+  if (!email) {
+    setAuthMessage(dom.authResetMessage, "Enter your email address.", "error");
+    return;
+  }
+  dom.authResetSubmit.disabled = true;
+  try {
+    await state.firebase.auth.sendPasswordResetEmail(email);
+    setAuthMessage(
+      dom.authResetMessage,
+      "Reset email sent — check your inbox (and spam folder).",
+      "ok"
+    );
+    dom.authResetCancel.textContent = "Close";
+  } catch (err) {
+    setAuthMessage(dom.authResetMessage, friendlyAuthError(err.code), "error");
+  } finally {
+    dom.authResetSubmit.disabled = false;
+  }
+}
+
+async function signOutUser() {
+  if (!state.firebase.auth) return;
+  await state.firebase.auth.signOut();
+  // onAuthStateChanged fires → handleAuthStateChange(null) cleans up state
+}
+
+function friendlyAuthError(code) {
+  const map = {
+    "auth/user-not-found":         "No account found for that email.",
+    "auth/wrong-password":         "Incorrect password.",
+    "auth/invalid-email":          "Invalid email address.",
+    "auth/email-already-in-use":   "An account with that email already exists.",
+    "auth/weak-password":          "Password is too weak (min 6 characters).",
+    "auth/too-many-requests":      "Too many attempts. Try again later.",
+    "auth/network-request-failed": "Network error. Check your connection.",
+    "auth/invalid-credential":     "Incorrect email or password.",
+  };
+  return map[code] || "Authentication error. Please try again.";
 }
 
 function updateStorageModeIndicator() {
@@ -1008,6 +1387,7 @@ function runPlanning() {
     analysis.inputs.pricePerBoardFoot
   );
   renderLayouts(dom.planningLayouts, state.planningResult.boards);
+  updateRecalcButtonState();
   setStatus("Planning stock optimization completed.", "ok");
 
   const boardCount = state.planningResult.boards.length;
@@ -1061,7 +1441,7 @@ function runInventoryPlan() {
     inventoryParts,
     analysis.inputs.inventory,
     analysis.inputs.kerfMm,
-    analysis.inputs.maxTransportLengthFt
+    analysis.inputs.planningLengthMaxFt
   );
   renderYardSuggestions(suggestions);
 
@@ -2164,7 +2544,7 @@ function pruneContainedRects(rects) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Lumber yard suggestions
 // ─────────────────────────────────────────────────────────────────────────────
-function buildYardSuggestions(parts, inventory, kerfMm, maxTransportLengthFt = DEFAULTS.maxTransportLengthFt) {
+function buildYardSuggestions(parts, inventory, kerfMm, maxTransportLengthFt = DEFAULTS.planningLengthMaxFt) {
   const suggestions      = [];
   const maxTransportMm   = maxTransportLengthFt * FOOT_TO_MM;
 
@@ -2214,7 +2594,7 @@ function renderYardSuggestions(suggestions) {
       '<p class="muted">No recut suggestions — all inventory boards are within the max transport length.</p>';
     return;
   }
-  const maxFt = suggestions[0].maxTransportLengthFt ?? DEFAULTS.maxTransportLengthFt;
+  const maxFt = suggestions[0].maxTransportLengthFt ?? DEFAULTS.planningLengthMaxFt;
   dom.lumberYardSuggestions.innerHTML = `<h3>Lumber Yard Recut Suggestions <span class="muted" style="font-weight:400;font-size:0.88rem">(boards exceeding ${maxFt} ft transport limit)</span></h3>`;
   const list = document.createElement("ul");
   list.className = "compact";
@@ -2594,69 +2974,75 @@ function renderLayouts(target, boards) {
     subtitle.textContent = `Metric: ${formatMm(board.widthMm, 1)} × ${formatMm(board.lengthMm, 1)} (${board.source})`;
     card.append(subtitle);
 
-    // Height is board.lengthMm scaled so that 460 px ≈ board width at scale 1.0
-    const baseScale  = 460 / board.widthMm;
-    const drawScale  = baseScale * state.layoutScale;
-    const svgHeight  = Math.max(60, board.lengthMm * drawScale);
+    // Horizontal layout: board lies flat — length along X axis, width along Y axis.
+    // baseScale ≈ 0.59 px/mm gives ~120px height for a typical 8" (203mm) wide board at scale 1.0.
+    const baseScale = 120 / (8 * INCH_TO_MM);
+    const drawScale = baseScale * state.layoutScale;
+    const svgHeight = Math.max(50, board.widthMm * drawScale);
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "board-svg");
-    svg.setAttribute("viewBox", `0 0 ${board.widthMm} ${board.lengthMm}`);
+    svg.setAttribute("viewBox", `0 0 ${board.lengthMm} ${board.widthMm}`);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.style.height = `${svgHeight}px`;
 
+    // Board background
     const boardRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     boardRect.setAttribute("x", "0"); boardRect.setAttribute("y", "0");
-    boardRect.setAttribute("width",  String(board.widthMm));
-    boardRect.setAttribute("height", String(board.lengthMm));
+    boardRect.setAttribute("width",  String(board.lengthMm));
+    boardRect.setAttribute("height", String(board.widthMm));
     boardRect.setAttribute("fill", "#f4e6ce");
     boardRect.setAttribute("stroke", "#a48a6a");
-    boardRect.setAttribute("stroke-width", String(Math.max(0.8, board.widthMm * 0.002)));
+    boardRect.setAttribute("stroke-width", String(Math.max(0.8, board.widthMm * 0.008)));
     svg.append(boardRect);
 
+    // End-trim zones at left and right ends of the board
     if (board.trimTotalMm > EPSILON) {
-      for (const [y, h] of [
+      for (const [x, w] of [
         [0, board.trimOffsetMm],
         [board.lengthMm - board.trimOffsetMm, board.trimOffsetMm],
       ]) {
         const trim = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        trim.setAttribute("x", "0"); trim.setAttribute("y", String(y));
-        trim.setAttribute("width", String(board.widthMm)); trim.setAttribute("height", String(h));
-        trim.setAttribute("fill", "#d7c4a8"); trim.setAttribute("fill-opacity", "0.45");
+        trim.setAttribute("x", String(x)); trim.setAttribute("y", "0");
+        trim.setAttribute("width", String(w)); trim.setAttribute("height", String(board.widthMm));
+        trim.setAttribute("fill", "#d7c4a8"); trim.setAttribute("fill-opacity", "0.55");
         svg.append(trim);
       }
     }
 
     board.placements.forEach((placement, placementIndex) => {
+      // Coordinate swap: board x-axis (width) → SVG y-axis; board y-axis (length) → SVG x-axis
+      const svgX = placement.y;
+      const svgY = placement.x;
+      const svgW = placement.lengthMm;
+      const svgH = placement.widthMm;
+
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x",      String(placement.x));
-      rect.setAttribute("y",      String(placement.y));
-      rect.setAttribute("width",  String(placement.widthMm));
-      rect.setAttribute("height", String(placement.lengthMm));
+      rect.setAttribute("x",      String(svgX));
+      rect.setAttribute("y",      String(svgY));
+      rect.setAttribute("width",  String(svgW));
+      rect.setAttribute("height", String(svgH));
       rect.setAttribute("fill",         colors[(placementIndex + boardIndex) % colors.length]);
       rect.setAttribute("fill-opacity", "0.86");
       rect.setAttribute("stroke",       "#ffffff");
-      rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.0015)));
+      rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.006)));
       svg.append(rect);
 
-      // Label centred on the placement rect, rotated -90° (reads bottom-to-top)
-      const cx = placement.x + placement.widthMm  / 2;
-      const cy = placement.y + placement.lengthMm / 2;
-      // Font size: fits within the narrower dimension of the part
+      // Label: left-aligned, reads left-to-right, no rotation
+      const labelPad = svgW * 0.03;
       const fontSize = Math.min(
-        Math.max(5, placement.widthMm  * 0.18),
-        Math.max(5, placement.lengthMm * 0.07),
-        Math.max(5, board.widthMm      * 0.045)
+        Math.max(4, svgH * 0.45),        // fit within part height
+        Math.max(4, svgW * 0.06),        // don't dominate part width
+        Math.max(4, board.widthMm * 0.10) // limit by board scale
       );
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x",                String(cx));
-      label.setAttribute("y",                String(cy));
-      label.setAttribute("text-anchor",      "middle");
+      label.setAttribute("x",                String(svgX + labelPad));
+      label.setAttribute("y",                String(svgY + svgH / 2));
+      label.setAttribute("text-anchor",      "start");
       label.setAttribute("dominant-baseline","central");
       label.setAttribute("font-size",        String(fontSize));
       label.setAttribute("fill",             "#fff");
-      label.setAttribute("transform",        `rotate(-90, ${cx}, ${cy})`);
       label.textContent = shortenPartName(placement.partName);
       svg.append(label);
     });

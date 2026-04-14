@@ -21,11 +21,34 @@
         <div class="status-icons">
           <span id="sync-status-icon" class="icon-dot red" title="Sync status: not connected to cloud" aria-label="Sync status"></span>
           <span id="storage-mode-icon" class="icon-chip" title="Storage backend: Local Browser Storage" aria-label="Storage backend">L</span>
+          <!-- User account menu -->
+          <div class="user-menu-wrap" id="user-menu-wrap">
+            <button id="user-menu-btn" type="button" class="user-avatar-btn unauthenticated"
+                    aria-haspopup="true" aria-expanded="false" title="Account">
+              <!-- Person silhouette shown when signed out -->
+              <svg id="user-avatar-silhouette" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                   fill="currentColor" width="18" height="18" aria-hidden="true">
+                <circle cx="12" cy="7" r="4"/>
+                <path d="M12 13c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z"/>
+              </svg>
+              <!-- Initials shown when signed in -->
+              <span id="user-avatar-initials" class="hidden"></span>
+            </button>
+            <div id="user-menu-dropdown" class="user-menu-dropdown hidden" role="menu">
+              <div id="user-menu-info" class="user-menu-info hidden">
+                <span id="user-menu-email" class="user-menu-email"></span>
+                <span id="user-menu-role"  class="user-menu-role"></span>
+              </div>
+              <hr class="user-menu-divider hidden" id="user-menu-divider" />
+              <button id="user-menu-signin"  type="button" role="menuitem" class="user-menu-item">Sign In</button>
+              <button id="user-menu-signout" type="button" role="menuitem" class="user-menu-item hidden">Sign Out</button>
+            </div>
+          </div>
         </div>
       </header>
 
-      <!-- Project section: always visible above tabs -->
-      <section class="card">
+      <!-- Project section: visible only when signed in -->
+      <section id="project-section" class="card hidden">
         <h2>Project</h2>
         <div class="grid project-grid">
           <label>
@@ -112,7 +135,7 @@
             <button id="clear-part-overrides"      type="button" class="secondary">Clear Part Overrides</button>
           </div>
 
-          <details>
+          <details open>
             <summary>Milling allowances (metric)</summary>
             <div class="grid catalog-grid">
               <label>
@@ -138,7 +161,7 @@
             </div>
           </details>
 
-          <details>
+          <details open>
             <summary>Planner stock catalog range (imperial)</summary>
             <div class="grid catalog-grid">
               <label>
@@ -155,12 +178,8 @@
               </label>
               <label>
                 Length max (ft)
-                <input id="planning-length-max" type="number" min="1" step="1" value="10" />
-              </label>
-              <label>
-                Max transport length (ft)
-                <input id="max-transport-length" type="number" min="1" step="1" value="12"
-                  title="Boards longer than this will receive a yard recut suggestion in Lumber Yard results." />
+                <input id="planning-length-max" type="number" min="1" step="1" value="10"
+                  title="Maximum board length the planner considers. Also used as the transport limit — boards over this length in the Lumber Yard tab will receive a yard recut suggestion." />
               </label>
             </div>
           </details>
@@ -365,30 +384,48 @@
             </ul>
 
             <h3>Project Save + Load</h3>
-            <p>Projects are saved to <strong>local browser storage</strong> by default (no server required). Connect Firebase in the <strong>Settings</strong> tab to sync to the cloud — projects are then accessible from any device using the same Firebase credentials.</p>
+            <p>Projects are saved to <strong>local browser storage</strong> by default (no server required). Sign in with an account to sync to Firebase — projects are then accessible from any device using the same credentials.</p>
             <p><em>Note:</em> Firestore documents have a 1 MB limit. Very large OBJ files may fail to save to Firebase; reduce mesh complexity in your CAD export if you hit this limit.</p>
+
+            <h3>User Accounts</h3>
+            <p>Click the <strong>avatar button</strong> (upper-right corner) to sign in, create an account, reset your password, or sign out. All accounts created through the web app are <strong>Standard</strong> users. The <strong>Settings</strong> tab is only visible to Admin users.</p>
+            <p>To promote a user to Admin: Firebase Console → Firestore → <code>users</code> collection → find the user's document → change <code>role</code> from <code>"standard"</code> to <code>"admin"</code> → Update.</p>
 
             <h3>Firebase Setup</h3>
             <ol>
               <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
-              <li>Add a <strong>Web App</strong> and copy: apiKey, authDomain, projectId, appId.</li>
+              <li>Add a <strong>Web App</strong> and copy: apiKey, authDomain, projectId, appId into <code>DEFAULT_FIREBASE_CONFIG</code> in <code>app.js</code>.</li>
               <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
-              <li>Enable <strong>Authentication → Email/Password</strong> sign-in and create a user account.</li>
+              <li>Enable <strong>Authentication → Email/Password</strong> sign-in method.</li>
               <li>Add your domain (and <code>localhost</code> for testing) to <strong>Authentication → Authorized Domains</strong>.</li>
-              <li>Enter your email and password in the Settings tab and click <strong>Connect Firebase</strong>.</li>
+              <li>Use the avatar menu in the app to create your first account, then promote it to Admin via the Firestore Console (see above).</li>
             </ol>
 
             <h3>Recommended Firestore Security Rules</h3>
             <pre>rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() &amp;&amp; request.auth.uid == uid; }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isAdmin() { return isSignedIn() &amp;&amp; userDoc().role == 'admin'; }
+
+    match /users/{uid} {
+      allow read:   if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+                    &amp;&amp; request.resource.data.role == 'standard'
+                    &amp;&amp; request.resource.data.email == request.auth.token.email;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /projects/{projectId} {
-      allow read: if request.auth != null
-        &amp;&amp; request.auth.uid == resource.data.ownerUid;
-      allow update, delete: if request.auth != null
-        &amp;&amp; request.auth.uid == resource.data.ownerUid;
-      allow create: if request.auth != null
-        &amp;&amp; request.auth.uid == request.resource.data.ownerUid;
+      allow read:           if isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid;
+      allow update, delete: if isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid;
+      allow create:         if isSignedIn() &amp;&amp; request.auth.uid == request.resource.data.ownerUid;
     }
   }
 }</pre>
@@ -396,8 +433,8 @@ service cloud.firestore {
             <h3>Security Notes</h3>
             <ul>
               <li><strong>Firebase API keys</strong> are safe to embed in client-side code — they identify your project but do not grant access. Security is enforced by Firestore Rules and Authentication.</li>
+              <li>The Firestore rules prevent any client from self-assigning the <code>admin</code> role. Only the Firebase Console can promote users.</li>
               <li>Projects in <strong>localStorage</strong> are accessible to any JavaScript running on the same origin. Avoid storing sensitive data in project or part names.</li>
-              <li>Anonymous auth ties each project to an anonymous user ID. Switching browsers creates a new user and won't see prior projects unless you migrate <code>ownerUid</code> values.</li>
             </ul>
 
             <h3>Additional Scale Multiplier</h3>
@@ -409,6 +446,78 @@ service cloud.firestore {
       </div><!-- /instructions tab -->
 
     </main>
+
+    <!-- ── Auth: Login modal ─────────────────────────────────── -->
+    <div id="auth-login-modal" class="modal hidden" role="dialog"
+         aria-modal="true" aria-labelledby="auth-login-title">
+      <div class="modal-content auth-modal-content">
+        <h2 id="auth-login-title">Sign In</h2>
+        <p id="auth-login-error" class="status error hidden"></p>
+        <label>
+          Email
+          <input id="auth-login-email" type="email" autocomplete="email" placeholder="you@example.com" />
+        </label>
+        <label style="margin-top:10px">
+          Password
+          <input id="auth-login-password" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </label>
+        <div class="button-row" style="margin-top:16px;justify-content:center">
+          <button id="auth-login-submit" type="button">Sign In</button>
+          <button id="auth-login-cancel" type="button" class="secondary">Cancel</button>
+        </div>
+        <p style="margin-top:12px;text-align:center;font-size:0.88rem">
+          <button id="auth-show-reset"  type="button" class="link-btn">Forgot password?</button>
+          &nbsp;·&nbsp;
+          <button id="auth-show-signup" type="button" class="link-btn">Create account</button>
+        </p>
+      </div>
+    </div>
+
+    <!-- ── Auth: Sign-up modal ───────────────────────────────── -->
+    <div id="auth-signup-modal" class="modal hidden" role="dialog"
+         aria-modal="true" aria-labelledby="auth-signup-title">
+      <div class="modal-content auth-modal-content">
+        <h2 id="auth-signup-title">Create Account</h2>
+        <p id="auth-signup-error" class="status error hidden"></p>
+        <label>
+          Email
+          <input id="auth-signup-email" type="email" autocomplete="email" placeholder="you@example.com" />
+        </label>
+        <label style="margin-top:10px">
+          Password
+          <input id="auth-signup-password" type="password" autocomplete="new-password" placeholder="Min 6 characters" />
+        </label>
+        <label style="margin-top:10px">
+          Confirm password
+          <input id="auth-signup-confirm" type="password" autocomplete="new-password" placeholder="Repeat password" />
+        </label>
+        <div class="button-row" style="margin-top:16px;justify-content:center">
+          <button id="auth-signup-submit" type="button">Create Account</button>
+          <button id="auth-signup-cancel" type="button" class="secondary">Cancel</button>
+        </div>
+        <p style="margin-top:12px;text-align:center;font-size:0.88rem">
+          Already have an account?
+          <button id="auth-show-login-from-signup" type="button" class="link-btn">Sign in</button>
+        </p>
+      </div>
+    </div>
+
+    <!-- ── Auth: Password reset modal ───────────────────────── -->
+    <div id="auth-reset-modal" class="modal hidden" role="dialog"
+         aria-modal="true" aria-labelledby="auth-reset-title">
+      <div class="modal-content auth-modal-content">
+        <h2 id="auth-reset-title">Reset Password</h2>
+        <p id="auth-reset-message" class="status hidden"></p>
+        <label>
+          Email
+          <input id="auth-reset-email" type="email" autocomplete="email" placeholder="you@example.com" />
+        </label>
+        <div class="button-row" style="margin-top:16px;justify-content:center">
+          <button id="auth-reset-submit" type="button">Send Reset Email</button>
+          <button id="auth-reset-cancel" type="button" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Completion modal -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-msg">
@@ -439,6 +548,7 @@ service cloud.firestore {
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

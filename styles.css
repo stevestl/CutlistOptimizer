@@ -223,6 +223,7 @@ button {
 button.secondary { border-color: var(--accent-2); background: var(--accent-2); }
 button.danger    { border-color: var(--danger);   background: var(--danger);   }
 button:hover     { filter: brightness(1.04); }
+button:disabled  { opacity: 0.38; cursor: not-allowed; filter: none; }
 
 .button-row {
   display: flex;
@@ -446,6 +447,155 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   .override-row button { width: auto; }
 
   th, td { font-size: 0.8rem; padding: 6px; }
+}
+
+/* ── Auth modals ────────────────────────────────────────────── */
+
+.auth-modal-content {
+  text-align: left;
+}
+
+.auth-modal-content h2 {
+  margin-bottom: 14px;
+  font-size: 1.2rem;
+}
+
+.auth-modal-content label {
+  font-size: 0.9rem;
+}
+
+/* Flat link-style button used for "Forgot password?" etc. */
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  cursor: pointer;
+  font-size: inherit;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: var(--accent-2);
+  filter: none;
+}
+
+/* ── User menu (topbar avatar) ──────────────────────────────── */
+
+.user-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.user-avatar-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid rgba(255,255,255,0.35);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  letter-spacing: 0.03em;
+  transition: background 0.15s;
+}
+
+.user-avatar-btn:hover {
+  filter: brightness(1.1);
+}
+
+.user-avatar-btn.unauthenticated {
+  background: #9e8e7e;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(44,35,26,0.18);
+  z-index: 1000;
+  padding: 6px 0;
+}
+
+.user-menu-dropdown.hidden {
+  display: none;
+}
+
+.user-menu-info {
+  padding: 10px 14px 8px;
+}
+
+.user-menu-info.hidden {
+  display: none;
+}
+
+.user-menu-email {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.user-menu-role {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e8dfd1;
+  color: var(--ink-soft);
+}
+
+.user-menu-role.admin {
+  background: #d4edda;
+  color: #1a5e35;
+}
+
+.user-menu-divider {
+  margin: 4px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.user-menu-divider.hidden {
+  display: none;
+}
+
+.user-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.user-menu-item:hover {
+  background: #ede4d6;
+  filter: none;
+}
+
+.user-menu-item.hidden {
+  display: none;
 }
 
 @media (max-width: 430px) {
