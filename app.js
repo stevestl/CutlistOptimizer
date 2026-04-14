@@ -743,6 +743,7 @@ function clearResults() {
   dom.inventoryLayouts.innerHTML      = "";
   dom.lumberYardSuggestions.innerHTML = "";
   updateRecalcButtonState();
+  renderWorkshopTab();
 }
 
 async function saveProject() {
