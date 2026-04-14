@@ -119,17 +119,14 @@ const dom = {
   loadProject:  document.querySelector("#load-project"),
   deleteProject: document.querySelector("#delete-project"),
   syncStatusIcon:  document.querySelector("#sync-status-icon"),
-  storageModeIcon: document.querySelector("#storage-mode-icon"),
 
   // Status
   status: document.querySelector("#status"),
 
-  // Firebase settings
-  firebaseConnect:  document.querySelector("#firebase-connect"),
-  firebaseUseLocal: document.querySelector("#firebase-use-local"),
-  firebaseStatus:   document.querySelector("#firebase-status"),
-  firebaseEmail:    document.querySelector("#firebase-email"),
-  firebasePassword: document.querySelector("#firebase-password"),
+  // Admin tab
+  firebaseStatus:    document.querySelector("#firebase-status"),
+  adminRefreshUsers: document.querySelector("#admin-refresh-users"),
+  adminUsersList:    document.querySelector("#admin-users-list"),
 
   // Model + Material settings
   objFile:            document.querySelector("#obj-file"),
@@ -243,7 +240,6 @@ function init() {
   seedDefaultProjectInputs();
   initTabs();
   initPartsSorting();
-  updateStorageModeIndicator();
   updateSyncStatusIndicator();
   updateUserMenuUI();           // show unauthenticated state immediately
   updateSettingsTabVisibility(); // hide Settings tab until admin confirmed
@@ -291,9 +287,8 @@ function wireEvents() {
   // Viewer
   dom.resetView.addEventListener("click", resetViewerCamera);
 
-  // Firebase (Settings tab — admin only)
-  dom.firebaseConnect.addEventListener("click",  connectFirebase);
-  dom.firebaseUseLocal.addEventListener("click", useLocalStorageBackend);
+  // Admin tab
+  dom.adminRefreshUsers.addEventListener("click", loadAdminUsersAndProjects);
 
   // User menu toggle
   dom.userMenuBtn.addEventListener("click", toggleUserMenu);
@@ -912,79 +907,6 @@ function setFirebaseStatus(message, type = "") {
   dom.firebaseStatus.textContent = message;
 }
 
-async function connectFirebase() {
-  if (!window.firebase) {
-    setFirebaseStatus("Firebase scripts failed to load.", "error");
-    return;
-  }
-
-  const config = getActiveFirebaseConfig();
-  if (!config) {
-    setFirebaseStatus(
-      "No Firebase config found. Fill in DEFAULT_FIREBASE_CONFIG in app.js with your project credentials.",
-      "error"
-    );
-    return;
-  }
-
-  try {
-    // Persist config to localStorage so it survives if user edits app.js credentials later
-    localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-
-    const appName = `cutlist-${config.projectId}`;
-    let app = window.firebase.apps.find((a) => a.name === appName);
-    if (!app) app = window.firebase.initializeApp(config, appName);
-
-    const auth  = app.auth();
-    const email = dom.firebaseEmail.value.trim();
-    const pass  = dom.firebasePassword.value;
-    if (!email || !pass) {
-      setFirebaseStatus("Enter your email and password to connect.", "error");
-      return;
-    }
-    const credential = await auth.signInWithEmailAndPassword(email, pass);
-    const user       = credential.user;
-    const db         = app.firestore();
-
-    state.firebase.connected = true;
-    state.firebase.mode      = "firebase";
-    state.firebase.app       = app;
-    state.firebase.auth      = auth;
-    state.firebase.db        = db;
-    state.firebase.user      = user;
-    state.firebase.config    = config;
-
-    updateStorageModeIndicator();
-    updateSyncStatusIndicator();
-    await refreshProjectSelect();
-    setFirebaseStatus(`Connected to Firebase project "${config.projectId}".`, "ok");
-    setStatus("Switched project storage backend to Firebase cloud.", "ok");
-  } catch (error) {
-    console.error(error);
-    state.firebase.connected = false;
-    state.firebase.mode      = "local";
-    state.firebase.app       = null;
-    state.firebase.auth      = null;
-    state.firebase.db        = null;
-    state.firebase.user      = null;
-    state.firebase.config    = null;
-    updateStorageModeIndicator();
-    updateSyncStatusIndicator();
-    const msg = `Firebase connect failed: ${error.message || "Unknown error"}`;
-    setFirebaseStatus(msg, "error");
-    setStatus(msg, "error"); // surface in the main status bar too
-  }
-}
-
-async function useLocalStorageBackend() {
-  state.firebase.mode = "local";
-  updateStorageModeIndicator();
-  updateSyncStatusIndicator();
-  await refreshProjectSelect();
-  setFirebaseStatus("Using local browser storage. Firebase connection is idle.");
-  setStatus("Switched project storage backend to local browser storage.", "ok");
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth — initialization + state listener
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1055,7 +977,6 @@ async function handleAuthStateChange(user) {
     }
   }
 
-  updateStorageModeIndicator();
   updateSyncStatusIndicator();
   updateUserMenuUI();
   updateSettingsTabVisibility();
@@ -1126,6 +1047,116 @@ function toggleUserMenu() {
 function closeUserMenu() {
   dom.userMenuDropdown.classList.add("hidden");
   dom.userMenuBtn.setAttribute("aria-expanded", "false");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin — Users & Projects panel
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadAdminUsersAndProjects() {
+  const container = dom.adminUsersList;
+  if (!container) return;
+  if (!state.firebase.db || state.firebase.role !== "admin") {
+    container.innerHTML = '<p class="muted">Not available — sign in as an admin first.</p>';
+    return;
+  }
+  container.innerHTML = '<p class="muted">Loading…</p>';
+
+  try {
+    // Fetch all users
+    const usersSnap    = await state.firebase.db.collection("users").get();
+    const usersById    = new Map();
+    for (const doc of usersSnap.docs) {
+      usersById.set(doc.id, { uid: doc.id, ...doc.data() });
+    }
+
+    // Fetch all projects (requires admin-read rule in Firestore)
+    const projectsSnap = await state.firebase.db.collection("projects").get();
+    const projectsByOwner = new Map();
+    for (const doc of projectsSnap.docs) {
+      const data  = doc.data();
+      const owner = data.ownerUid || "(unknown)";
+      if (!projectsByOwner.has(owner)) projectsByOwner.set(owner, []);
+      projectsByOwner.get(owner).push({ id: doc.id, name: data.name || doc.id, updatedAt: data.updatedAt });
+    }
+
+    container.innerHTML = "";
+
+    if (usersById.size === 0) {
+      container.innerHTML = '<p class="muted">No users found.</p>';
+      return;
+    }
+
+    // Build a table — one row per user
+    const table = document.createElement("table");
+    table.style.cssText = "width:100%;border-collapse:collapse;font-size:0.88rem";
+
+    const thead = table.createTHead();
+    const hrow  = thead.insertRow();
+    for (const h of ["Email", "Role", "UID", "Projects"]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      th.style.cssText = "text-align:left;padding:4px 8px;border-bottom:1px solid var(--border)";
+      hrow.append(th);
+    }
+
+    const tbody = table.createTBody();
+    for (const [uid, user] of [...usersById.entries()].sort((a, b) =>
+      (a[1].email || "").localeCompare(b[1].email || "")
+    )) {
+      const projects = projectsByOwner.get(uid) || [];
+      const tr = tbody.insertRow();
+      tr.style.verticalAlign = "top";
+
+      const tdStyle = "padding:4px 8px;border-bottom:1px solid var(--border)";
+      const emailTd = tr.insertCell(); emailTd.style.cssText = tdStyle;
+      emailTd.textContent = user.email || "—";
+
+      const roleTd  = tr.insertCell(); roleTd.style.cssText = tdStyle;
+      roleTd.textContent = user.role || "standard";
+
+      const uidTd   = tr.insertCell(); uidTd.style.cssText = `${tdStyle};font-size:0.78rem;color:var(--text-muted,#888);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`;
+      uidTd.title   = uid;
+      uidTd.textContent = uid;
+
+      const projTd  = tr.insertCell(); projTd.style.cssText = tdStyle;
+      if (projects.length === 0) {
+        projTd.textContent = "—";
+      } else {
+        const ul = document.createElement("ul");
+        ul.style.cssText = "margin:0;padding:0 0 0 14px";
+        for (const p of projects.sort((a, b) => (a.name || "").localeCompare(b.name || ""))) {
+          const li = document.createElement("li");
+          li.textContent = p.name;
+          ul.append(li);
+        }
+        projTd.append(ul);
+      }
+
+      tbody.append(tr);
+    }
+
+    // Show any projects with unknown owners at the bottom
+    const unknownProjects = projectsByOwner.get("(unknown)") || [];
+    if (unknownProjects.length) {
+      const tr = tbody.insertRow();
+      const tdStyle = "padding:4px 8px;border-bottom:1px solid var(--border)";
+      const emailTd = tr.insertCell(); emailTd.colSpan = 3;
+      emailTd.style.cssText = `${tdStyle};color:var(--text-muted,#888)`;
+      emailTd.textContent = "(unknown owner)";
+      const projTd = tr.insertCell(); projTd.style.cssText = tdStyle;
+      projTd.textContent = unknownProjects.map((p) => p.name).join(", ");
+    }
+
+    container.append(table);
+    container.insertAdjacentHTML("beforeend",
+      `<p class="muted" style="margin-top:8px">${usersById.size} user(s) · ${projectsSnap.size} project(s) total</p>`
+    );
+  } catch (err) {
+    console.error("Admin panel error:", err);
+    container.innerHTML =
+      `<p class="status error">Failed to load: ${err.message}. ` +
+      `Check that the Firestore rules allow admins to read all projects.</p>`;
+  }
 }
 
 function updateSettingsTabVisibility() {
@@ -1281,18 +1312,6 @@ function friendlyAuthError(code) {
     "auth/invalid-credential":     "Incorrect email or password.",
   };
   return map[code] || "Authentication error. Please try again.";
-}
-
-function updateStorageModeIndicator() {
-  if (!dom.storageModeIcon) return;
-  const backend = activeStorageBackend();
-  dom.storageModeIcon.classList.toggle("cloud", backend === "firebase");
-  dom.storageModeIcon.classList.toggle("local", backend !== "firebase");
-  dom.storageModeIcon.textContent = backend === "firebase" ? "C" : "L";
-  dom.storageModeIcon.title =
-    backend === "firebase"
-      ? "Storage backend: Firebase Cloud"
-      : "Storage backend: Local Browser Storage";
 }
 
 function updateSyncStatusIndicator() {

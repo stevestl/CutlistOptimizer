@@ -74,21 +74,15 @@ Part orientation is fixed as requested:
    - Refreshes after model load and analyze.
 
 7. **Planner UI behavior**
-   - Planner/Settings tab layout.
-   - Top-right status icons:
-     - sync icon (red/green)
-     - storage icon (`L` local, `C` cloud) with hover definitions
+   - Planner / Lumber Yard / Admin / Instructions tab layout.
+   - Top-right sync icon (red = disconnected, green = connected to Firebase).
    - Parts table sorted alphabetically by default.
    - Click any displayed parts column header to sort.
    - Raw dimensions are hidden from table columns; hover the part name to see raw X/Y/Z.
 
-## Storage Backends
+## Storage Backend
 
-The app supports both:
-- **Local Browser Storage** (`localStorage`)
-- **Firebase Cloud Storage** (Firestore + email/password auth)
-
-You can switch between backends in the **Cloud Sync (Firebase)** section of the Settings tab.
+Projects are stored in **Firebase Cloud Storage** (Firestore). Users must sign in via the avatar button to save and load projects.
 
 ## Firebase Setup Steps
 
@@ -101,20 +95,16 @@ You can switch between backends in the **Cloud Sync (Firebase)** section of the 
    - optional: `storageBucket`, `messagingSenderId`
 3. Paste these values into `DEFAULT_FIREBASE_CONFIG` at the top of `app.js`.
 4. Enable **Firestore Database** in **Native mode**.
-5. Enable **Authentication**:
-   - Sign-in method: **Email/Password** (enable it).
-   - Create a user account under **Authentication > Users**.
-6. Add your host to **Authentication > Settings > Authorized domains**:
+5. Enable **Authentication → Email/Password** sign-in method.
+6. Add your host to **Authentication → Settings → Authorized domains**:
    - include `localhost` (for local testing)
    - include your production domain when deployed
-7. In the app's Settings tab, enter your email and password and click **Connect Firebase**.
-8. Confirm top-right icons show cloud mode:
-   - storage icon switches to `C`
-   - sync icon turns green
+7. Paste the Firestore Security Rules below into your project.
+8. Use the avatar menu in the app to create the first user account, then promote it to Admin via the Firestore Console.
 
 ### Recommended Firestore Security Rules
 
-Use these rules to support both user roles and project ownership:
+These rules allow admins to read all projects (needed for the Admin tab's Users & Projects panel).
 
 ```txt
 rules_version = '2';
@@ -147,9 +137,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Projects — owned by the creating user
+    // Projects — owned by creating user; admins can read all
     match /projects/{projectId} {
-      allow read:          if isSignedIn() && request.auth.uid == resource.data.ownerUid;
+      allow read:           if isAdmin()
+                            || (isSignedIn() && request.auth.uid == resource.data.ownerUid);
       allow update, delete: if isSignedIn() && request.auth.uid == resource.data.ownerUid;
       allow create:         if isSignedIn() && request.auth.uid == request.resource.data.ownerUid;
     }
@@ -191,8 +182,8 @@ The app supports two user types:
 
 | Role | Created via | Access |
 |------|-------------|--------|
-| **Standard** | Web app sign-up | All tabs except Settings |
-| **Admin** | Firebase Console (manual promotion) | All tabs including Settings |
+| **Standard** | Web app sign-up | All tabs except Admin |
+| **Admin** | Firebase Console (manual promotion) | All tabs including Admin |
 
 ### Signing in
 

@@ -19,8 +19,7 @@
           </div>
         </div>
         <div class="status-icons">
-          <span id="sync-status-icon" class="icon-dot red" title="Sync status: not connected to cloud" aria-label="Sync status"></span>
-          <span id="storage-mode-icon" class="icon-chip" title="Storage backend: Local Browser Storage" aria-label="Storage backend">L</span>
+          <span id="sync-status-icon" class="icon-dot red" title="Sync status: not connected to Firebase" aria-label="Sync status"></span>
           <!-- User account menu -->
           <div class="user-menu-wrap" id="user-menu-wrap">
             <button id="user-menu-btn" type="button" class="user-avatar-btn unauthenticated"
@@ -83,7 +82,7 @@
       <nav class="tab-nav" aria-label="Main tabs">
         <button id="tab-planning"      type="button" class="tab-btn active">Planning</button>
         <button id="tab-lumber-yard"   type="button" class="tab-btn">Lumber Yard</button>
-        <button id="tab-settings"      type="button" class="tab-btn">Settings</button>
+        <button id="tab-settings"      type="button" class="tab-btn">Admin</button>
         <button id="tab-instructions"  type="button" class="tab-btn">Instructions</button>
       </nav>
 
@@ -289,45 +288,105 @@
 
       </div><!-- /lumber-yard tab -->
 
-      <!-- ── SETTINGS TAB ───────────────────────────────────────── -->
+      <!-- ── ADMIN TAB ──────────────────────────────────────────── -->
       <div class="tab-content hidden" data-tab="settings">
 
         <section class="card">
-          <h2>Cloud Sync (Firebase)</h2>
+          <h2>Firebase Status</h2>
           <p class="help">
             Firebase credentials are configured in <code>DEFAULT_FIREBASE_CONFIG</code> at the top of
-            <code>app.js</code>. Sign in with an email/password account to sync your projects to the cloud.
+            <code>app.js</code>. Users sign in via the avatar button (top-right corner).
           </p>
-          <div class="grid catalog-grid" style="margin-bottom:10px">
-            <label>
-              Email
-              <input id="firebase-email" type="email" placeholder="you@example.com" autocomplete="email" />
-            </label>
-            <label>
-              Password
-              <input id="firebase-password" type="password" placeholder="••••••••" autocomplete="current-password" />
-            </label>
-          </div>
-          <details>
-            <summary>Firebase setup checklist</summary>
-            <ol style="margin:8px 0 0;padding-left:18px;font-size:0.88rem;line-height:1.7">
-              <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
-              <li>Add a <strong>Web App</strong> and copy <strong>apiKey, authDomain, projectId, appId</strong> into <code>DEFAULT_FIREBASE_CONFIG</code> in <code>app.js</code>.</li>
-              <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
-              <li>Enable <strong>Authentication → Email/Password</strong> sign-in method.</li>
-              <li>Create a user account in <strong>Authentication → Users</strong>.</li>
-              <li>Add your domain (and <code>localhost</code>) to <strong>Authentication → Authorized Domains</strong>.</li>
-              <li>Set Firestore Security Rules — see the <strong>Instructions</strong> tab for starter rules. The default "deny all" rules block all writes.</li>
-            </ol>
-          </details>
-          <div class="button-row" style="margin-top:12px">
-            <button id="firebase-connect"   type="button">Connect Firebase</button>
-            <button id="firebase-use-local" type="button" class="secondary">Use Local Storage</button>
-          </div>
           <p id="firebase-status" class="status">Firebase not connected.</p>
         </section>
 
-      </div><!-- /settings tab -->
+        <section class="card">
+          <h2>Users &amp; Projects</h2>
+          <p class="help">All registered users and their saved projects. Requires the updated Firestore rules below (admin-can-read-all-projects).</p>
+          <div class="button-row">
+            <button id="admin-refresh-users" type="button">Refresh</button>
+          </div>
+          <div id="admin-users-list" style="margin-top:14px"></div>
+        </section>
+
+        <section class="card">
+          <details>
+            <summary><strong>Firebase Setup</strong></summary>
+            <div class="instructions-body" style="margin-top:10px">
+              <ol>
+                <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
+                <li>Add a <strong>Web App</strong> and copy <strong>apiKey, authDomain, projectId, appId</strong> into <code>DEFAULT_FIREBASE_CONFIG</code> at the top of <code>app.js</code>.</li>
+                <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
+                <li>Enable <strong>Authentication → Email/Password</strong> sign-in method.</li>
+                <li>Add your domain (and <code>localhost</code> for testing) to <strong>Authentication → Authorized Domains</strong>.</li>
+                <li>Paste the Firestore Security Rules below into your project's Firestore → Rules editor.</li>
+                <li>Use the avatar menu to create your first user account, then promote it to Admin via Firestore Console (see Promoting a User to Admin below).</li>
+              </ol>
+
+              <h3>App Check (reCAPTCHA v3)</h3>
+              <ol>
+                <li>Firebase Console → <strong>App Check</strong> → register your web app → choose <strong>reCAPTCHA v3</strong>.</li>
+                <li>Google reCAPTCHA Admin (<em>g.co/recaptcha/admin</em>) → create a v3 site key for your domains (e.g. <code>yourusername.github.io</code> and <code>localhost</code>).</li>
+                <li>Paste the site key into <code>RECAPTCHA_SITE_KEY</code> at the top of <code>app.js</code>.</li>
+                <li>Start in <strong>Monitor</strong> mode; switch to <strong>Enforce</strong> after confirming legitimate traffic.</li>
+              </ol>
+
+              <h3>Recommended Firestore Security Rules</h3>
+              <p style="font-size:0.88rem">These rules allow admins to read all projects (needed for the Users &amp; Projects panel above).</p>
+              <pre>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() &amp;&amp; request.auth.uid == uid; }
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isAdmin() { return isSignedIn() &amp;&amp; userDoc().role == 'admin'; }
+
+    match /users/{uid} {
+      allow read:   if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+                    &amp;&amp; request.resource.data.role == 'standard'
+                    &amp;&amp; request.resource.data.email == request.auth.token.email;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read:           if isAdmin()
+                            || (isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid);
+      allow update, delete: if isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid;
+      allow create:         if isSignedIn() &amp;&amp; request.auth.uid == request.resource.data.ownerUid;
+    }
+  }
+}</pre>
+
+              <h3>Promoting a User to Admin</h3>
+              <ol>
+                <li>Firebase Console → your project → <strong>Firestore Database</strong>.</li>
+                <li>Browse to the <code>users</code> collection and find the user's document.</li>
+                <li>Click the <code>role</code> field → change <code>"standard"</code> to <code>"admin"</code> → <strong>Update</strong>.</li>
+                <li>The change takes effect on the user's next sign-in or page reload.</li>
+              </ol>
+
+              <h3>Security Notes</h3>
+              <ul>
+                <li><strong>Firebase API keys</strong> are safe to embed in client-side code — they identify your project but do not grant access. Security is enforced by Firestore Rules and Authentication.</li>
+                <li>The Firestore rules prevent any client from self-assigning the <code>admin</code> role. Only the Firebase Console (service-account level) can promote users.</li>
+              </ul>
+
+              <h3>Hosting on GitHub Pages</h3>
+              <ol>
+                <li>Push the repository to GitHub and go to <strong>Settings → Pages</strong>.</li>
+                <li>Under <strong>Source</strong>, select <em>Deploy from a branch</em> → <strong>main</strong> / <strong>/ (root)</strong> → Save.</li>
+                <li>Add <code>&lt;your-username&gt;.github.io</code> to Firebase → Authentication → Authorized Domains.</li>
+              </ol>
+            </div>
+          </details>
+        </section>
+
+      </div><!-- /admin tab -->
 
       <!-- ── INSTRUCTIONS TAB ───────────────────────────────────── -->
       <div class="tab-content hidden" data-tab="instructions">
@@ -381,8 +440,13 @@
               <li><strong>Lumber Yard Recalculate</strong>: re-optimizes against the specific boards in your inventory table. Enable <em>Assume infinite inventory</em> to treat quantities as unlimited. With no inventory rows and infinite mode enabled, falls back to the planning catalog range.</li>
             </ul>
 
-            <h3>Grain Lock</h3>
-            <p>When grain lock is on, a blank will not be rotated 90° during nesting — this preserves grain direction along the part's length. Toggle per-part in the Parts List, or set the default in Model + Material Settings.</p>
+            <h3>Grain Direction</h3>
+            <p>The <strong>Grain</strong> column in the Parts List controls how a blank is oriented during nesting:</p>
+            <ul>
+              <li><strong>Long</strong> — grain runs along the longest axis; the blank will not be rotated (default).</li>
+              <li><strong>Mid</strong> — grain runs along the middle axis; the blank is pre-rotated 90° before nesting and rotation is then locked.</li>
+              <li><strong>Free</strong> — nesting may rotate the blank freely to improve yield.</li>
+            </ul>
 
             <h3>3D Preview</h3>
             <ul>
@@ -392,58 +456,11 @@
             </ul>
 
             <h3>Project Save + Load</h3>
-            <p>Projects are saved to <strong>local browser storage</strong> by default (no server required). Sign in with an account to sync to Firebase — projects are then accessible from any device using the same credentials.</p>
-            <p><em>Note:</em> Firestore documents have a 1 MB limit. Very large OBJ files may fail to save to Firebase; reduce mesh complexity in your CAD export if you hit this limit.</p>
+            <p>Sign in with an account (avatar button, upper-right) to save and load projects. Projects are stored in Firebase and accessible from any device using the same credentials.</p>
+            <p><em>Note:</em> Firestore documents have a 1 MB limit. Very large OBJ files may fail to save; reduce mesh complexity in your CAD export if you hit this limit.</p>
 
             <h3>User Accounts</h3>
-            <p>Click the <strong>avatar button</strong> (upper-right corner) to sign in, create an account, reset your password, or sign out. All accounts created through the web app are <strong>Standard</strong> users. The <strong>Settings</strong> tab is only visible to Admin users.</p>
-            <p>To promote a user to Admin: Firebase Console → Firestore → <code>users</code> collection → find the user's document → change <code>role</code> from <code>"standard"</code> to <code>"admin"</code> → Update.</p>
-
-            <h3>Firebase Setup</h3>
-            <ol>
-              <li>Create a Firebase project at <em>console.firebase.google.com</em>.</li>
-              <li>Add a <strong>Web App</strong> and copy: apiKey, authDomain, projectId, appId into <code>DEFAULT_FIREBASE_CONFIG</code> in <code>app.js</code>.</li>
-              <li>Enable <strong>Firestore Database</strong> (Native mode).</li>
-              <li>Enable <strong>Authentication → Email/Password</strong> sign-in method.</li>
-              <li>Add your domain (and <code>localhost</code> for testing) to <strong>Authentication → Authorized Domains</strong>.</li>
-              <li>Use the avatar menu in the app to create your first account, then promote it to Admin via the Firestore Console (see above).</li>
-            </ol>
-
-            <h3>Recommended Firestore Security Rules</h3>
-            <pre>rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    function isSignedIn() { return request.auth != null; }
-    function isOwner(uid) { return isSignedIn() &amp;&amp; request.auth.uid == uid; }
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-    function isAdmin() { return isSignedIn() &amp;&amp; userDoc().role == 'admin'; }
-
-    match /users/{uid} {
-      allow read:   if isOwner(uid) || isAdmin();
-      allow create: if isOwner(uid)
-                    &amp;&amp; request.resource.data.role == 'standard'
-                    &amp;&amp; request.resource.data.email == request.auth.token.email;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    match /projects/{projectId} {
-      allow read:           if isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid;
-      allow update, delete: if isSignedIn() &amp;&amp; request.auth.uid == resource.data.ownerUid;
-      allow create:         if isSignedIn() &amp;&amp; request.auth.uid == request.resource.data.ownerUid;
-    }
-  }
-}</pre>
-
-            <h3>Security Notes</h3>
-            <ul>
-              <li><strong>Firebase API keys</strong> are safe to embed in client-side code — they identify your project but do not grant access. Security is enforced by Firestore Rules and Authentication.</li>
-              <li>The Firestore rules prevent any client from self-assigning the <code>admin</code> role. Only the Firebase Console can promote users.</li>
-              <li>Projects in <strong>localStorage</strong> are accessible to any JavaScript running on the same origin. Avoid storing sensitive data in project or part names.</li>
-            </ul>
+            <p>Click the <strong>avatar button</strong> (upper-right corner) to sign in, create an account, reset your password, or sign out. All accounts created through the web app are <strong>Standard</strong> users. The <strong>Admin</strong> tab is only visible to Admin users — contact your administrator to be promoted.</p>
 
             <h3>Additional Scale Multiplier</h3>
             <p>Applied after unit conversion: <code>final_mm = value × unit_factor × multiplier</code>. Use <strong>1</strong> for normal exports. Change only if your export is consistently scaled incorrectly.</p>
