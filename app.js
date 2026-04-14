@@ -33,7 +33,8 @@ const DEFAULT_FIREBASE_CONFIG = {
 //   Replace ReCaptchaV3Provider with the native Play Integrity / App Attest
 //   provider in the Cordova build.  The web key is ignored by native builds.
 //
-// Leave RECAPTCHA_SITE_KEY as "" to skip App Check (e.g. during development).
+// App Check is automatically skipped on localhost (reCAPTCHA v3 won't work there).
+// Leave RECAPTCHA_SITE_KEY as "" to also skip it on deployed builds.
 // ─────────────────────────────────────────────────────────────────────────────
 const RECAPTCHA_SITE_KEY = "6LehgrcsAAAAABkZHwD2M9fngmCtW7YptYUj7UsG";
 
@@ -926,7 +927,11 @@ function initAuth() {
   if (!app) app = window.firebase.initializeApp(config, appName);
 
   // ── App Check (must activate before auth/firestore are used) ──────────────
-  if (RECAPTCHA_SITE_KEY && window.firebase.appCheck) {
+  // Skip App Check on localhost — reCAPTCHA v3 requires a registered public domain
+  // and will always fail locally.  Firebase never enforces App Check on localhost
+  // anyway (it can't verify a loopback address), so this is safe to skip.
+  const isLocalhost = ["localhost", "127.0.0.1", ""].includes(location.hostname);
+  if (RECAPTCHA_SITE_KEY && !isLocalhost && window.firebase.appCheck) {
     try {
       app.appCheck().activate(
         new firebase.appCheck.ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
@@ -938,6 +943,8 @@ function initAuth() {
       // In MONITOR mode Firebase still allows traffic; in ENFORCE mode it won't.
       console.warn("App Check activation failed:", err.message);
     }
+  } else if (isLocalhost) {
+    console.info("App Check skipped on localhost.");
   }
 
   const auth = app.auth();
