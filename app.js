@@ -86,6 +86,7 @@ const state = {
   viewer: null,
   sort: { key: "name", direction: "asc" },
   activeTab: "planning",
+  lastSavedSnapshot: null, // set on save/load to detect unsaved changes
   layoutScale: 0.75, // board diagram scale; 1.0 = full size, default 0.75 (25% smaller)
   firebase: {
     connected: false,
@@ -192,6 +193,7 @@ const dom = {
   // Modal
   modal:       document.querySelector("#modal"),
   modalMsg:    document.querySelector("#modal-msg"),
+  modalSave:   document.querySelector("#modal-save"),
   modalOk:     document.querySelector("#modal-ok"),
   modalCancel: document.querySelector("#modal-cancel"),
 
@@ -322,11 +324,12 @@ function wireEvents() {
   dom.authResetEmail.addEventListener("keydown", (e) => { if (e.key === "Enter") handlePasswordReset(); });
 
   // Modal
-  dom.modalOk.addEventListener("click",     () => resolveModal(true));
-  dom.modalCancel.addEventListener("click", () => resolveModal(false));
+  dom.modalSave.addEventListener("click",   () => resolveModal("save"));
+  dom.modalOk.addEventListener("click",     () => resolveModal(_modalMode === "unsaved" ? "discard" : true));
+  dom.modalCancel.addEventListener("click", () => resolveModal(_modalMode === "unsaved" ? "cancel"  : false));
   dom.modal.addEventListener("keydown", (e) => {
-    if (e.key === "Enter")  resolveModal(true);
-    if (e.key === "Escape") resolveModal(false);
+    if (e.key === "Enter")  resolveModal(_modalMode === "unsaved" ? "discard" : true);
+    if (e.key === "Escape") resolveModal(_modalMode === "unsaved" ? "cancel"  : false);
   });
 }
 
@@ -334,12 +337,15 @@ function wireEvents() {
 // Modal
 // ─────────────────────────────────────────────────────────────────────────────
 let _modalReturnFocus = null;
-let _modalResolve     = null; // set when modal is in confirm mode
+let _modalResolve     = null; // set when modal is in confirm/unsaved mode
+let _modalMode        = "info"; // "info" | "confirm" | "unsaved"
 
 // Info modal (one OK button)
 function showModal(message, fromElement = null) {
-  dom.modalMsg.textContent = message;
-  dom.modalOk.textContent  = "OK";
+  _modalMode = "info";
+  dom.modalMsg.textContent      = message;
+  dom.modalOk.textContent       = "OK";
+  dom.modalSave.style.display   = "none";
   dom.modalCancel.style.display = "none";
   dom.modal.classList.remove("hidden");
   _modalReturnFocus = fromElement || document.activeElement;
@@ -348,9 +354,11 @@ function showModal(message, fromElement = null) {
 }
 
 // Confirm modal — returns a Promise<boolean>
-function showConfirm(message, okLabel = "Delete", fromElement = null) {
-  dom.modalMsg.textContent  = message;
-  dom.modalOk.textContent   = okLabel;
+function showConfirm(message, okLabel = "Confirm", fromElement = null) {
+  _modalMode = "confirm";
+  dom.modalMsg.textContent      = message;
+  dom.modalOk.textContent       = okLabel;
+  dom.modalSave.style.display   = "none";
   dom.modalCancel.style.display = "";
   dom.modal.classList.remove("hidden");
   _modalReturnFocus = fromElement || document.activeElement;
@@ -358,9 +366,29 @@ function showConfirm(message, okLabel = "Delete", fromElement = null) {
   return new Promise((resolve) => { _modalResolve = resolve; });
 }
 
-function resolveModal(confirmed) {
-  dom.modal.classList.add("hidden");
+// 3-button unsaved-changes dialog — returns Promise<"save"|"discard"|"cancel">
+function showUnsavedChangesDialog(fromElement = null) {
+  _modalMode = "unsaved";
+  const name = (dom.projectName.value || "").trim();
+  dom.modalMsg.textContent      = name
+    ? `"${name}" has unsaved changes.`
+    : "You have unsaved changes.";
+  dom.modalSave.textContent     = "Save";
+  dom.modalSave.style.display   = "";
+  dom.modalOk.textContent       = "Discard";
+  dom.modalCancel.style.display = "";
+  dom.modalCancel.textContent   = "Cancel";
+  dom.modal.classList.remove("hidden");
+  _modalReturnFocus = fromElement || document.activeElement;
+  dom.modalSave.focus();
+  return new Promise((resolve) => { _modalResolve = resolve; });
+}
+
+function resolveModal(result) {
+  _modalMode = "info";
+  dom.modalSave.style.display   = "none";
   dom.modalCancel.style.display = "none";
+  dom.modal.classList.add("hidden");
   if (_modalReturnFocus) {
     try { _modalReturnFocus.focus(); } catch (_) {}
     _modalReturnFocus = null;
@@ -368,7 +396,7 @@ function resolveModal(confirmed) {
   if (_modalResolve) {
     const cb = _modalResolve;
     _modalResolve = null;
-    cb(confirmed);
+    cb(result);
   }
 }
 
@@ -612,19 +640,62 @@ function readInventoryRows(inventoryInfinite = false) {
 // Project management
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Dirty-state tracking ─────────────────────────────────────────────────────
+
+function makeProjectSnapshot() {
+  return {
+    name:          (dom.projectName.value || "").trim(),
+    objTextLen:    state.objText.length,
+    partOverrides: JSON.stringify(state.partOverrides),
+  };
+}
+
+function markProjectClean() {
+  state.lastSavedSnapshot = makeProjectSnapshot();
+}
+
+function isProjectDirty() {
+  // Completely blank slate — nothing to lose
+  const hasContent = state.objText ||
+                     (dom.projectName.value || "").trim() ||
+                     Object.keys(state.partOverrides).length;
+  if (!hasContent) return false;
+
+  // Content exists but was never saved/loaded — always dirty
+  if (!state.lastSavedSnapshot) return true;
+
+  const snap = state.lastSavedSnapshot;
+  const cur  = makeProjectSnapshot();
+  return cur.name !== snap.name ||
+         cur.objTextLen !== snap.objTextLen ||
+         cur.partOverrides !== snap.partOverrides;
+}
+
 function updateProjectSelectButtons() {
   const hasSelection = !!dom.projectSelect.value;
   dom.loadProject.disabled   = !hasSelection;
   dom.deleteProject.disabled = !hasSelection;
 }
 
-function clearProject() {
-  state.objText         = "";
-  state.rawParts        = [];
-  state.parts           = [];
-  state.partOverrides   = {};
-  state.planningResult  = null;
-  state.inventoryResult = null;
+async function clearProject() {
+  if (isProjectDirty()) {
+    const choice = await showUnsavedChangesDialog(dom.newProject);
+    if (choice === "cancel") return;
+    if (choice === "save") {
+      await saveProject();
+      // If save failed (no name, network error, etc.) don't wipe the project
+      if (isProjectDirty()) return;
+    }
+    // choice === "discard" — fall through and wipe
+  }
+
+  state.objText           = "";
+  state.rawParts          = [];
+  state.parts             = [];
+  state.partOverrides     = {};
+  state.planningResult    = null;
+  state.inventoryResult   = null;
+  state.lastSavedSnapshot = null;
 
   dom.projectName.value   = "";
   dom.projectSelect.value = "";
@@ -703,6 +774,7 @@ async function saveProject() {
       saveProjectLocal(payload);
     }
     await refreshProjectSelect(payload.id);
+    markProjectClean();
     setStatus(
       `Saved project "${name}" to ${
         activeStorageBackend() === "firebase" ? "Firebase cloud" : "local browser storage"
@@ -740,6 +812,8 @@ async function loadSelectedProject() {
     clearResults();
     setStatus(`Loaded project "${project.name}" (no OBJ file stored — re-analyze to load one).`, "ok");
   }
+
+  markProjectClean();
 }
 
 async function deleteSelectedProject() {

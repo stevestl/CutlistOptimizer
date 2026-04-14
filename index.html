@@ -558,8 +558,9 @@ service cloud.firestore {
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-msg">
       <div class="modal-content">
         <p id="modal-msg"></p>
-        <div style="display:flex;gap:10px;justify-content:center">
-          <button id="modal-ok" type="button">OK</button>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button id="modal-save"   type="button" style="display:none">Save</button>
+          <button id="modal-ok"     type="button">OK</button>
           <button id="modal-cancel" type="button" class="secondary" style="display:none">Cancel</button>
         </div>
       </div>
