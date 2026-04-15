@@ -465,6 +465,22 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   font-size: 0.88em;
 }
 
+/* ── Curved-part badge ──────────────────────────────────────── */
+
+.curved-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 3px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  cursor: help;
+  white-space: nowrap;
+}
+
 /* ── Workshop tab ───────────────────────────────────────────── */
 
 .workshop-header-row {

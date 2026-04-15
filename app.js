@@ -57,6 +57,7 @@ const DEFAULTS = {
   kerfMm: 3.2,
   pricePerBoardFoot: 9.5,
   defaultGrainLock: true,
+  maxPlanerWidthIn: 12, // 0 = no restriction
   milling: {
     thicknessMm: 3.2,
     widthMm: 3.2,
@@ -154,7 +155,8 @@ const dom = {
   allowWidth:     document.querySelector("#allow-width"),
   allowLength:    document.querySelector("#allow-length"),
   boardEndTrim:   document.querySelector("#board-end-trim"),
-  ripMargin:      document.querySelector("#rip-margin"),
+  ripMargin:         document.querySelector("#rip-margin"),
+  maxPlanerWidth:    document.querySelector("#max-planer-width"),
 
   // Planning catalog range
   planningWidthMin:  document.querySelector("#planning-width-min"),
@@ -514,6 +516,7 @@ function collectInputs() {
       boardEndTrimMm: getNonNegativeNumber(dom.boardEndTrim.value, DEFAULTS.milling.boardEndTrimMm),
       ripMarginMm:  getNonNegativeNumber(dom.ripMargin.value,      DEFAULTS.milling.ripMarginMm),
     },
+    maxPlanerWidthIn: getNonNegativeNumber(dom.maxPlanerWidth.value, DEFAULTS.maxPlanerWidthIn),
     planningWidthMinIn:  getPositiveNumber(dom.planningWidthMin.value,  DEFAULTS.planningWidthMinIn),
     planningWidthMaxIn:  getPositiveNumber(dom.planningWidthMax.value,  DEFAULTS.planningWidthMaxIn),
     planningLengthMinFt: getPositiveNumber(dom.planningLengthMin.value, DEFAULTS.planningLengthMinFt),
@@ -545,6 +548,7 @@ function restoreInputs(inputs) {
   dom.allowLength.value    = String(milling.lengthMm     ?? DEFAULTS.milling.lengthMm);
   dom.boardEndTrim.value   = String(milling.boardEndTrimMm ?? DEFAULTS.milling.boardEndTrimMm);
   dom.ripMargin.value      = String(milling.ripMarginMm  ?? DEFAULTS.milling.ripMarginMm);
+  dom.maxPlanerWidth.value = String(inputs.maxPlanerWidthIn ?? DEFAULTS.maxPlanerWidthIn);
 
   // Support legacy projects saved with planningWidthsIn / planningLengthsFt arrays
   if (Array.isArray(inputs.planningWidthsIn) && inputs.planningWidthsIn.length) {
@@ -1847,12 +1851,14 @@ function parseObjObjects(text, scaleToMm) {
     if (!points.length) continue;
     const [rawX, rawY, rawZ] = getBoundingBoxDimensions(points);
     const pcaDims = computePcaDimensions(points); // [length, width, thickness] sorted largest→smallest, or null
+    const curved  = computeCurvatureFlag(points);
     const safeName = name || `Part ${counter}`;
     parts.push({
       id:   `${slugify(safeName)}-${counter}`,
       name: safeName,
       xMm: rawX, yMm: rawY, zMm: rawZ, // AABB raw values — shown in hover tooltip
       pcaDims, // true dimensions from PCA; null when < 4 vertices
+      curved,  // true when geometry appears to have curved surfaces
     });
     counter += 1;
   }
@@ -2136,6 +2142,43 @@ function resetViewerCamera() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Geometry helpers
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Curved-surface heuristic.
+ *
+ * For a prismatic (rectangular) part every vertex lies on one of the 6 flat faces,
+ * so it is near an extreme (within 15 % of range) on at least one axis.
+ * Vertices that are NOT near any axis extreme can only appear on curved geometry.
+ * If more than 15 % of vertices are "fully interior" we flag the part as curved.
+ *
+ * Returns true  → likely curved surface
+ *         false → appears prismatic
+ */
+function computeCurvatureFlag(points) {
+  if (!points || points.length < 12) return false;
+
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+  for (const [x, y, z] of points) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  const rx = maxX - minX, ry = maxY - minY, rz = maxZ - minZ;
+  // Skip degenerate / nearly-flat geometry
+  if (rx < 0.1 || ry < 0.1 || rz < 0.1) return false;
+
+  const margin = 0.15; // within 15 % of range from a face = "on that face"
+  let interior = 0;
+  for (const [x, y, z] of points) {
+    const nearX = (x - minX) / rx < margin || (maxX - x) / rx < margin;
+    const nearY = (y - minY) / ry < margin || (maxY - y) / ry < margin;
+    const nearZ = (z - minZ) / rz < margin || (maxZ - z) / rz < margin;
+    if (!nearX && !nearY && !nearZ) interior++;
+  }
+  return (interior / points.length) > 0.15;
+}
+
 function getBoundingBoxDimensions(points) {
   let minX = Infinity,  maxX = -Infinity;
   let minY = Infinity,  maxY = -Infinity;
@@ -2282,6 +2325,7 @@ function assignPartsForStock(rawParts, inputs, partOverrides) {
       id: rawPart.id,
       name: rawPart.name,
       rawMm: { x: rawPart.xMm, y: rawPart.yMm, z: rawPart.zMm }, // always AABB for hover display
+      curved: Boolean(rawPart.curved),
       netLengthMm:      roundTo(netLengthMm, 2),
       netWidthMm:       roundTo(netWidthMm, 2),
       netThicknessMm:   roundTo(netThicknessMm, 2),
@@ -2431,8 +2475,9 @@ function generateIntRange(min, max) {
 // Cut-plan optimizer (MaxRects-style 2-D nesting)
 // ─────────────────────────────────────────────────────────────────────────────
 function optimizeCutPlan(parts, boardCatalog, inputs) {
-  const spacingMm = inputs.kerfMm + inputs.milling.ripMarginMm;
-  const endTrimMm = inputs.milling.boardEndTrimMm;
+  const spacingMm        = inputs.kerfMm + inputs.milling.ripMarginMm;
+  const endTrimMm        = inputs.milling.boardEndTrimMm;
+  const maxPlanerWidthMm = (inputs.maxPlanerWidthIn ?? 0) * INCH_TO_MM;
   const unmetParts = [];
 
   // Pre-compute the widest available board per thickness quarter.
@@ -2566,7 +2611,7 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
       let placement = findBestPlacementAcrossBoards(openBoards, blank, spacingMm);
 
       if (!placement) {
-        const boardType = chooseBoardType(types, blank, spacingMm, endTrimMm, remaining);
+        const boardType = chooseBoardType(types, blank, spacingMm, endTrimMm, remaining, maxPlanerWidthMm);
         if (!boardType) {
           unmetParts.push({
             partId:   blank.partId,
@@ -2655,7 +2700,7 @@ function createBoardFromType(type, id, endTrimMm) {
 // we score each board type by how much of the remaining work can potentially fit
 // on it. This naturally prefers longer/wider boards when many blanks remain,
 // producing better yield across the full job.
-function chooseBoardType(types, blank, spacingMm, endTrimMm, remainingBlanks = []) {
+function chooseBoardType(types, blank, spacingMm, endTrimMm, remainingBlanks = [], maxPlanerWidthMm = 0) {
   const eligible = [];
 
   for (const type of types) {
@@ -2675,8 +2720,15 @@ function chooseBoardType(types, blank, spacingMm, endTrimMm, remainingBlanks = [
 
   if (!eligible.length) return null;
 
+  // When a max planer width is set, try narrow boards first.
+  // Only consider over-width boards if no narrow board can satisfy the blank.
+  const narrowEligible = maxPlanerWidthMm > 0
+    ? eligible.filter(({ type }) => type.widthMm <= maxPlanerWidthMm + EPSILON)
+    : eligible;
+  const pool = narrowEligible.length > 0 ? narrowEligible : eligible;
+
   let best = null;
-  for (const { type, usableLengthMm } of eligible) {
+  for (const { type, usableLengthMm } of pool) {
     const boardArea = type.widthMm * usableLengthMm;
 
     // Sum area of remaining blanks (including current) that could fit on this board type
@@ -2946,8 +2998,20 @@ function renderPartsTable(parts, inputs) {
     excludeCell.append(excludeInput);
     row.append(excludeCell);
 
-    appendTextCell(row, part.name,
-      `Raw X=${formatMm(part.rawMm.x)}, Raw Y=${formatMm(part.rawMm.y)}, Raw Z=${formatMm(part.rawMm.z)}`);
+    // Part name cell — append curved-surface badge when detected
+    const nameCell = document.createElement("td");
+    nameCell.title = `Raw X=${formatMm(part.rawMm.x)}, Raw Y=${formatMm(part.rawMm.y)}, Raw Z=${formatMm(part.rawMm.z)}`;
+    nameCell.textContent = part.name;
+    if (part.curved) {
+      const badge = document.createElement("span");
+      badge.className = "curved-badge";
+      badge.title = "This part appears to have curved geometry. " +
+        "The blank dimensions shown are the bounding box — correct for ordering stock, " +
+        "but the finished part will require shaping (band saw, router, etc.) after rough milling.";
+      badge.textContent = " ⌒ curved";
+      nameCell.append(badge);
+    }
+    row.append(nameCell);
     appendTextCell(row, formatMm(part.netLengthMm));
     appendTextCell(row, formatMm(part.netWidthMm));
     appendTextCell(row, formatMm(part.netThicknessMm));
@@ -3228,6 +3292,7 @@ function renderWorkshopTab() {
 
   // Build a fast lookup: partId → part data
   const partsMap = new Map(state.parts.map((p) => [p.id, p]));
+  const maxPlanerWidthIn = collectInputs().maxPlanerWidthIn;
 
   // Global draw scale (same logic as renderLayouts — widest board = 180 px)
   const maxWidthMm = Math.max(...result.boards.map((b) => b.widthMm), 1);
@@ -3272,7 +3337,7 @@ function renderWorkshopTab() {
     cutHead.textContent = "Recommended cut sequence";
     card.append(cutHead);
 
-    const steps = buildCutSequence(board, partsMap);
+    const steps = buildCutSequence(board, partsMap, maxPlanerWidthIn);
     const ol = document.createElement("ol");
     ol.className = "workshop-steps";
     steps.forEach((step, i) => {
@@ -3303,7 +3368,7 @@ function renderWorkshopTab() {
   });
 
   // ── Consolidated schedule ────────────────────────────────────
-  const phases = buildConsolidatedSchedule(result, partsMap);
+  const phases = buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn);
   if (phases.length) {
     dom.workshopContent.append(renderConsolidatedSchedule(phases));
   }
@@ -3603,12 +3668,13 @@ function planeThickForBoard(board, partsMap) {
  * Generate a step-by-step cut sequence for a single board.
  * Steps are objects: { tool, toolClass, text }
  */
-function buildCutSequence(board, partsMap) {
+function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
-  const stockMm       = quarterToMm(board.thicknessQuarter);
-  const maxRoughThick = maxRoughThickForBoard(board, partsMap);
+  const stockMm          = quarterToMm(board.thicknessQuarter);
+  const maxRoughThick    = maxRoughThickForBoard(board, partsMap);
+  const maxPlanerWidthMm = maxPlanerWidthIn * INCH_TO_MM;
   // planeThickMm is the target for the PLANER at this stage.
   // For laminated parts the blanks are planed to roughThicknessMm / layers — the layers
   // are glued together AFTER cutting, then flattened as a glued assembly.
@@ -3640,16 +3706,24 @@ function buildCutSequence(board, partsMap) {
   const lamThickNote = hasLam
     ? ` (per-layer target — blanks will be glued up to full thickness after cutting)`
     : "";
+  const boardOverWidth = maxPlanerWidthMm > 0 && board.widthMm > maxPlanerWidthMm + EPSILON;
+  const multiPassNote = boardOverWidth
+    ? ` ⚠ Board is ${formatInches(board.widthIn)} wide — wider than your ${formatInches(maxPlanerWidthIn)}" planer capacity. ` +
+      `Rip the board into strips ≤ ${formatInches(maxPlanerWidthIn)}" wide before planing, ` +
+      `then edge-glue them back to width after planing if needed. ` +
+      `Alternatively, use a wide drum sander or hand planes.`
+    : "";
   spacer("Planer", "tool-planer",
     `Plane to ${formatMm(planeThickMm, 1)}${lamThickNote}. ` +
-    `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.`);
+    `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.${multiPassNote}`);
 
   spacer("Jointer", "tool-jointer",
     "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
 
   spacer("Miter saw", "tool-mitersaw",
-    `Trim ends: cut ${formatMm(trimEach, 0)} from each end to square up and remove ` +
-    `end checks. You now have ${formatMm(board.usableLengthMm ?? (board.lengthMm - 2 * trimEach), 0)} of usable length.`);
+    `Trim the reference end only: cut ≈${formatMm(trimEach, 0)} to square up and remove end checks. ` +
+    `Leave the far end intact for now — it will be cleaned up as part of the final cross-cut. ` +
+    `All blank measurements below are taken from this trimmed reference end.`);
 
   // ── Blank cuts ───────────────────────────────────────────────
   const sections = buildSections(board);
@@ -3827,9 +3901,10 @@ function buildFinalMillingBox(board, partsMap) {
  * Returns an array of phase objects: { tool, toolClass, heading, note, groups[] }
  * Each group: { setting, items[] }  where item: { label, detail }
  */
-function buildConsolidatedSchedule(result, partsMap) {
+function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
   const boards = result.boards;
   if (!boards.length) return [];
+  const maxPlanerWidthMm = maxPlanerWidthIn * INCH_TO_MM;
 
   const phases = [];
   const boardDesc = (b) =>
@@ -3886,16 +3961,32 @@ function buildConsolidatedSchedule(result, partsMap) {
   // ── Phase 4: Plane to per-layer thickness — thickest group first ─────────
   // For laminated parts, each blank is planed to roughThicknessMm / layers.
   // The blanks are glued up to full thickness AFTER all cutting is done.
+  const overWidthBoards = maxPlanerWidthMm > 0
+    ? boards.filter((b) => b.widthMm > maxPlanerWidthMm + EPSILON)
+    : [];
+
   const planeGroups = groupBy(boards, (b) => roundTo(planeThickForBoard(b, partsMap), 1));
+  const planeNote = overWidthBoards.length
+    ? `Set to the thickest group first, then step the planer down — never back up. ` +
+      `For laminated parts the target shown is per layer. Take ≤ 1 mm passes per face. Alternate faces. ` +
+      `⚠ ${overWidthBoards.map((b) => b.id).join(", ")} exceed your ${formatInches(maxPlanerWidthIn)}" planer capacity ` +
+      `— rip those boards to ≤ ${formatInches(maxPlanerWidthIn)}" strips before planing (see individual board guides).`
+    : "Set to the thickest group first, then step the planer down — never back up. For laminated parts the target shown is per layer. Take ≤ 1 mm passes per face. Alternate faces.";
+
   phases.push({
     tool: "Planer", toolClass: "tool-planer",
     heading: "Plane all boards to (per-layer) thickness — thickest first",
-    note: "Set to the thickest group first, then step the planer down — never back up. For laminated parts the target shown is per layer, not the finished part thickness. Take ≤ 1 mm passes per face. Alternate faces.",
+    note: planeNote,
     groups: [...planeGroups.entries()].sort((a, b) => b[0] - a[0]).map(([t, bds], i) => ({
       setting: `${formatMm(t, 1)}${i === 0 ? "  ← set here first" : ""}`,
       items: bds.map((b) => {
-        const bHasLam = b.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1);
-        return { label: b.id, detail: `${b.thicknessQuarter}/4" stock → ${formatMm(t, 1)}${bHasLam ? " per layer" : ""}` };
+        const bHasLam     = b.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1);
+        const overWidth   = maxPlanerWidthMm > 0 && b.widthMm > maxPlanerWidthMm + EPSILON;
+        return {
+          label:  b.id,
+          detail: `${b.thicknessQuarter}/4" stock → ${formatMm(t, 1)}${bHasLam ? " per layer" : ""}` +
+                  (overWidth ? ` ⚠ rip to strips first (${formatInches(b.widthIn)} > ${formatInches(maxPlanerWidthIn)}" max)` : ""),
+        };
       }),
     })),
   });
@@ -3908,17 +3999,17 @@ function buildConsolidatedSchedule(result, partsMap) {
     groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: "" })) }],
   });
 
-  // ── Phase 6: Trim both ends — all boards ────────────────────────────────
+  // ── Phase 6: Trim reference end only — all boards ───────────────────────
   phases.push({
     tool: "Miter saw", toolClass: "tool-mitersaw",
-    heading: "Trim both ends — all boards",
-    note: "Square up both ends and remove end checks. No stop block needed for this step.",
+    heading: "Trim reference end only — all boards",
+    note: "Square up one end (the reference end) and remove end checks. Leave the far end intact — it will be cleaned up as the final cross-cut on each board. This preserves recovery options if a cross-cut measurement is off.",
     groups: [{
       setting: null,
       items: boards.map((b) => {
         const trim   = b.trimOffsetMm ?? 25.4;
         const usable = b.usableLengthMm ?? (b.lengthMm - 2 * trim);
-        return { label: b.id, detail: `trim ≈${formatMm(trim, 0)} each end → ${formatMm(usable, 0)} usable` };
+        return { label: b.id, detail: `trim ≈${formatMm(trim, 0)} from reference end → ≈${formatMm(usable, 0)} usable` };
       }),
     }],
   });

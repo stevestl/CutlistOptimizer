@@ -41,6 +41,8 @@ Part orientation is fixed as requested:
      - length: `25.4 mm`
      - board-end trim reserve: `50.8 mm`
      - rip margin per cut: `1.6 mm`
+   - **Max planer width (in):** boards wider than this are flagged in the workshop guide with rip-to-strips instructions. The planner and lumber yard recalculation bias board selection toward widths ≤ this limit; wider boards are still used when no narrow board fits a blank. Set to `0` to disable.
+   - **Curved part detection:** parts whose vertex cloud contains more than ~15 % "interior" vertices (not near any bounding-box face) are flagged with a ⌒ curved badge in the parts table. The bounding box is still the correct blank size, but the badge reminds you that shaping will be required after rough milling.
    - Assigns stock thickness in **quarters**, with lamination layers when needed.
 
 2. **Thickness + grain controls**
