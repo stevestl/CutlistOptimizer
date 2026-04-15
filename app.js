@@ -851,11 +851,6 @@ async function loadSelectedProject() {
   dom.projectName.value = project.name || "";
   state.objText         = project.objText || "";
   restoreInputs(project.inputs || {});
-  // Restore finalInventory, converting boardUsage back from plain object → Map
-  const fi = project.finalInventory ?? null;
-  state.inventoryResult = fi
-    ? { ...fi, boardUsage: new Map(Object.entries(fi.boardUsage ?? {})) }
-    : null;
 
   if (state.objText) {
     runAnalyze();
@@ -864,6 +859,20 @@ async function loadSelectedProject() {
     renderPartsTable([], collectInputs());
     clearResults();
     setStatus(`Loaded project "${project.name}" (no OBJ file stored — re-analyze to load one).`, "ok");
+  }
+
+  // Restore finalInventory AFTER runAnalyze() so it isn't wiped by clearExistingResults.
+  // Convert boardUsage from plain object (Firestore) back to Map.
+  const fi = project.finalInventory ?? null;
+  state.inventoryResult = fi
+    ? { ...fi, boardUsage: new Map(Object.entries(fi.boardUsage ?? {})) }
+    : null;
+
+  if (state.inventoryResult) {
+    const inputs = collectInputs();
+    renderPlanSummary(dom.inventorySummary, state.inventoryResult, "Inventory fit result", inputs.pricePerBoardFoot);
+    renderLayouts(dom.inventoryLayouts, state.inventoryResult.boards);
+    renderWorkshopTab();
   }
 
   markProjectClean();
