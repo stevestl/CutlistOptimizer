@@ -43,9 +43,11 @@ const RECAPTCHA_SITE_KEY = "6LehgrcsAAAAABkZHwD2M9fngmCtW7YptYUj7UsG";
 // ─────────────────────────────────────────────────────────────────────────────
 const STORAGE_KEY        = "cutlist-optimizer-projects-v2";
 const FIREBASE_CONFIG_KEY = "cutlist-optimizer-firebase-config-v1";
-const EPSILON   = 0.0001;
-const INCH_TO_MM = 25.4;
-const FOOT_TO_MM = 304.8;
+const EPSILON        = 0.0001;
+const INCH_TO_MM     = 25.4;
+const FOOT_TO_MM     = 304.8;
+// Extra width added per panel strip to allow edge-jointing each glue face before assembly.
+const PANEL_JOINT_MM = 3.2;
 
 const DEFAULTS = {
   modelUnits: "cm",
@@ -2433,6 +2435,17 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
   const endTrimMm = inputs.milling.boardEndTrimMm;
   const unmetParts = [];
 
+  // Pre-compute the widest available board per thickness quarter.
+  // Parts whose rough width exceeds this limit are split into glued-up panel strips.
+  const maxWidthByQuarter = new Map();
+  for (const type of boardCatalog) {
+    const cur = maxWidthByQuarter.get(type.thicknessQuarter) ?? 0;
+    if (type.widthMm > cur) maxWidthByQuarter.set(type.thicknessQuarter, type.widthMm);
+  }
+  const globalMaxWidthMm = boardCatalog.length
+    ? Math.max(...boardCatalog.map((t) => t.widthMm))
+    : 0;
+
   const blanks = [];
   for (const part of parts) {
     if (part.excluded) continue; // user explicitly excluded from planning
@@ -2444,21 +2457,53 @@ function optimizeCutPlan(parts, boardCatalog, inputs) {
       });
       continue;
     }
+
+    // Max board width for this part's stock quarter (fall back to global max for upsized cases)
+    const maxBoardWidthMm = maxWidthByQuarter.get(part.stockQuarter) ?? globalMaxWidthMm;
+
     for (let layer = 1; layer <= part.layers; layer++) {
       // "mid" grain: swap rough dims so the blank enters nesting already rotated 90°,
       // then lock rotation to preserve that orientation.
       const blankWidth  = part.grainDir === "mid" ? part.roughLengthMm : part.roughWidthMm;
       const blankLength = part.grainDir === "mid" ? part.roughWidthMm  : part.roughLengthMm;
-      blanks.push({
-        id:           `${part.id}-L${layer}`,
-        partId:       part.id,
-        basePartName: part.name,
-        name: part.layers > 1 ? `${part.name} (lam ${layer}/${part.layers})` : part.name,
-        widthMm:      blankWidth,
-        lengthMm:     blankLength,
-        stockQuarter: part.stockQuarter,
-        grainLock:    part.grainDir !== "free", // "long" and "mid" both lock rotation
-      });
+
+      if (maxBoardWidthMm > 0 && blankWidth > maxBoardWidthMm + EPSILON) {
+        // ── Panel glue-up: part is wider than any available board ──────────
+        // Split into the minimum number of strips that each fit on a single board.
+        // Each strip gets PANEL_JOINT_MM of extra width for edge-jointing the glue faces.
+        let numStrips = Math.ceil(blankWidth / maxBoardWidthMm);
+        let stripWidth = blankWidth / numStrips + PANEL_JOINT_MM;
+        if (stripWidth > maxBoardWidthMm) numStrips++; // safety: if joint allowance pushes over
+        stripWidth = roundTo(blankWidth / numStrips + PANEL_JOINT_MM, 1);
+
+        const layerNote = part.layers > 1 ? ` lam ${layer}/${part.layers}` : "";
+        for (let strip = 1; strip <= numStrips; strip++) {
+          blanks.push({
+            id:              `${part.id}-L${layer}-P${strip}`,
+            partId:          part.id,
+            basePartName:    part.name,
+            name:            `${part.name} (panel ${strip}/${numStrips}${layerNote})`,
+            widthMm:         stripWidth,
+            lengthMm:        blankLength,
+            stockQuarter:    part.stockQuarter,
+            grainLock:       part.grainDir !== "free",
+            panelStripCount: numStrips,
+            panelStripIndex: strip,
+            panelFullWidthMm: blankWidth,
+          });
+        }
+      } else {
+        blanks.push({
+          id:           `${part.id}-L${layer}`,
+          partId:       part.id,
+          basePartName: part.name,
+          name: part.layers > 1 ? `${part.name} (lam ${layer}/${part.layers})` : part.name,
+          widthMm:      blankWidth,
+          lengthMm:     blankLength,
+          stockQuarter: part.stockQuarter,
+          grainLock:    part.grainDir !== "free",
+        });
+      }
     }
   }
 
@@ -2720,6 +2765,10 @@ function placeBlankOnBoard(board, blank, placement) {
     lengthMm: placement.lengthMm,
     rotated:  placement.rotated,
     grainLock: blank.grainLock,
+    // Panel strip fields — only present when part is wider than available stock
+    panelStripCount:  blank.panelStripCount,
+    panelStripIndex:  blank.panelStripIndex,
+    panelFullWidthMm: blank.panelFullWidthMm,
   });
 }
 
@@ -3463,9 +3512,15 @@ function buildWorkshopPartsTable(board, partsMap) {
     nameTd.textContent = p.partName; // includes lam note when relevant
 
     const roughTd = tr.insertCell();
-    roughTd.textContent = part
-      ? `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}`
-      : `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × —`;
+    if (part) {
+      const isPanelStrip = p.panelStripCount > 1;
+      roughTd.textContent = isPanelStrip
+        ? `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}` +
+          ` (strip ${p.panelStripIndex}/${p.panelStripCount} → panel ${formatMm(p.panelFullWidthMm, 0)} W)`
+        : `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}`;
+    } else {
+      roughTd.textContent = `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × —`;
+    }
 
     const netTd = tr.insertCell();
     netTd.textContent = part
@@ -3605,6 +3660,36 @@ function buildCutSequence(board, partsMap) {
         `${formatMm(maxRoughThick, 0)} T — "${p.partName}"${lamNote}.`);
     });
   });
+
+  // ── Panel glue-up note ───────────────────────────────────────
+  // Collect unique panel parts on this board (identified by partId + strip count).
+  const panelPartsOnBoard = new Map();
+  for (const p of board.placements) {
+    if (p.panelStripCount > 1 && !panelPartsOnBoard.has(p.partId)) {
+      const pt = partsMap.get(p.partId);
+      panelPartsOnBoard.set(p.partId, {
+        name:       pt ? pt.name : p.partName,
+        count:      p.panelStripCount,
+        fullWidthMm: p.panelFullWidthMm,
+        stripsHere: board.placements.filter((q) => q.partId === p.partId).length,
+      });
+    }
+  }
+  if (panelPartsOnBoard.size) {
+    for (const panel of panelPartsOnBoard.values()) {
+      const allOnThis = panel.stripsHere === panel.count;
+      const locationNote = allOnThis
+        ? `All ${panel.count} strips are on this board.`
+        : `${panel.stripsHere} of ${panel.count} strips are on this board — collect remaining strips from other boards.`;
+      spacer("Jointer", "tool-jointer",
+        `Edge-joint one face of each "${panel.name}" strip (the faces that will be glued). ` +
+        `${locationNote}`);
+      spacer("Note", "tool-note",
+        `Dry-fit all ${panel.count} strips, then glue up to form a panel ` +
+        `≈${formatMm(panel.fullWidthMm, 0)} wide. Clamp overnight. ` +
+        `After cure, face-joint and plane the panel to rough thickness before final milling.`);
+    }
+  }
 
   // ── Lamination note ─────────────────────────────────────────
   const laminatedParts = [...new Set(
@@ -3841,7 +3926,53 @@ function buildConsolidatedSchedule(result, partsMap) {
     })),
   });
 
-  // ── Phase 9: Lamination glue-ups (if any) ────────────────────────────────
+  // ── Phase 9: Panel glue-ups (parts wider than any single board) ─────────
+  // Collect all panel parts across all boards, along with which board each strip is on.
+  const panelMap = new Map(); // partId → { name, count, fullWidthMm, stripBoards: Map<stripIndex→boardId> }
+  for (const b of boards) {
+    for (const p of b.placements) {
+      if (!(p.panelStripCount > 1)) continue;
+      if (!panelMap.has(p.partId)) {
+        const pt = partsMap.get(p.partId);
+        panelMap.set(p.partId, {
+          name:        pt ? pt.name : p.partName,
+          count:       p.panelStripCount,
+          fullWidthMm: p.panelFullWidthMm,
+          stripBoards: new Map(),
+        });
+      }
+      panelMap.get(p.partId).stripBoards.set(p.panelStripIndex, b.id);
+    }
+  }
+
+  if (panelMap.size) {
+    // Jointer: edge-joint glue faces — group all panels together (one jointer session)
+    phases.push({
+      tool: "Jointer", toolClass: "tool-jointer",
+      heading: "Edge-joint glue faces — panel glue-ups",
+      note: "Joint one face (the glue edge) of each panel strip. For best colour and grain match, keep strips from the same board together.",
+      groups: [...panelMap.values()].map((panel) => {
+        const stripList = [...panel.stripBoards.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([idx, bid]) => ({ label: `Strip ${idx}/${panel.count}`, detail: `from ${bid}` }));
+        return { setting: `"${panel.name}" — ${panel.count} strips → panel ${formatMm(panel.fullWidthMm, 0)} W`, items: stripList };
+      }),
+    });
+
+    // Glue-up: one group per panel part, widest panel first (more clamps / longest open time)
+    const byWidth = [...panelMap.values()].sort((a, b) => b.fullWidthMm - a.fullWidthMm);
+    phases.push({
+      tool: "Note", toolClass: "tool-note",
+      heading: "Glue up panels — widest first",
+      note: "Dry-fit strips before gluing. Apply glue to both mating edges. Clamp overnight. After cure, face-joint and plane each panel to rough thickness before final milling.",
+      groups: byWidth.map((panel) => ({
+        setting: `"${panel.name}" — ${panel.count} strips`,
+        items: [{ label: "Target panel width", detail: `≈${formatMm(panel.fullWidthMm, 0)} rough → ${formatMm(panel.fullWidthMm - PANEL_JOINT_MM * panel.count, 0)} after edge-jointing glued faces` }],
+      })),
+    });
+  }
+
+  // ── Final phase: Lamination glue-ups (if any) ────────────────────────────
   const lamParts = new Map();
   for (const b of boards) {
     for (const p of b.placements) {
@@ -3854,8 +3985,8 @@ function buildConsolidatedSchedule(result, partsMap) {
   if (lamParts.size) {
     phases.push({
       tool: "Note", toolClass: "tool-note",
-      heading: "Lamination glue-ups",
-      note: "Glue all lamination layers before final milling. Clamp overnight. After cure, surface both faces before ripping and cross-cutting to net dimensions.",
+      heading: "Thickness lamination glue-ups",
+      note: "Glue all thickness-lamination layers before final milling. Clamp overnight. After cure, surface both faces before ripping and cross-cutting to net dimensions.",
       groups: [{
         setting: null,
         items: [...lamParts.values()].map((l) => ({

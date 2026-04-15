@@ -69,7 +69,8 @@ Part orientation is fixed as requested:
      - Cross-cut sections (miter saw) → rip blanks to width (table saw), ordered left-to-right
      - Lamination note when layers must be glued up
    - **Final milling reference** table shows net target dimensions (T/W/L) per part.
-   - **Consolidated Mill Schedule** card (bottom of the tab and last PDF page) sequences all operations across every board to minimise planer height changes, table saw fence moves, and miter saw stop adjustments. Phases: Inspect → Face joint → (Re-saw) → Plane by thickness group (thickest first) → Joint edge → Trim ends → Cross-cut by length (longest first) → Rip by width (widest first) → Lamination glue-up.
+   - **Panel glue-up**: parts whose rough width exceeds the widest available board are automatically split into the minimum number of strips needed. Each strip gets `3.2 mm` of extra width for edge-jointing the glue faces. Strip blanks are nested onto boards like any other blank; the workshop guide shows which strips are on which board and provides edge-joint, dry-fit, and glue-up instructions.
+   - **Consolidated Mill Schedule** card (bottom of the tab and last PDF page) sequences all operations across every board to minimise planer height changes, table saw fence moves, and miter saw stop adjustments. Phases: Inspect → Face joint → (Re-saw) → Plane by thickness group (thickest first) → Joint edge → Trim ends → Cross-cut by length (longest first) → Rip by width (widest first) → (Panel glue-up) → (Thickness lamination glue-up).
 
 5. **Lumber-yard recalculation**
    - Re-optimizes against real inventory rows.
