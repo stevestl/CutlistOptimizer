@@ -3791,7 +3791,7 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
       spacer("Jointer", "tool-jointer",
         `Edge-joint one face of each "${panel.name}" strip (the faces that will be glued). ` +
         `${locationNote}`);
-      spacer("Note", "tool-note",
+      spacer("Glue", "tool-glue",
         `Dry-fit all ${panel.count} strips, then glue up to form a panel ` +
         `≈${formatMm(panel.fullWidthMm, 0)} wide. Clamp overnight. ` +
         `After cure, face-joint and plane the panel to rough thickness before final milling.`);
@@ -3821,7 +3821,7 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
       spacer("Jointer", "tool-jointer",
         `"${lam.name}" — edge-joint the mating face of each of the ${lam.layers} layer blanks ` +
         `(the face that will contact the next layer).`);
-      spacer("Note", "tool-note",
+      spacer("Glue", "tool-glue",
         `Dry-fit all ${lam.layers} layers of "${lam.name}" and check alignment. ` +
         `Apply glue to mating faces, assemble, and clamp overnight. ` +
         `Each layer is ≈${formatMm(lam.perLayerMm, 1)} thick; ` +
@@ -3830,6 +3830,21 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
         `After cure — scrape squeeze-out from "${lam.name}", then take one light face-joint pass ` +
         `on both faces to flatten. Final rough thickness: ${formatMm(lam.roughThickMm, 1)}.`);
     }
+  }
+
+  // ── Shaping steps for curved parts ──────────────────────────
+  const seenCurved = new Set();
+  for (const p of board.placements) {
+    const pt = partsMap.get(p.partId);
+    if (!pt?.curved || seenCurved.has(p.partId)) continue;
+    seenCurved.add(p.partId);
+    spacer("Milling", "tool-milling",
+      `"${pt.name}" has curved geometry. After rough milling to blank dimensions, ` +
+      `lay out the curve/profile from your design and shape to final form using ` +
+      `a band saw, jig saw, router, spokeshave, rasp, or spindle sander as appropriate. ` +
+      `Net dimensions (${formatMm(pt.netLengthMm, 1)} L × ${formatMm(pt.netWidthMm, 1)} W × ` +
+      `${formatMm(pt.netThicknessMm, 1)} T) describe the bounding box — the finished ` +
+      `part will be smaller once shaped.`);
   }
 
   return steps;
@@ -4111,7 +4126,7 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     // Glue-up: one group per panel part, widest panel first (more clamps / longest open time)
     const byWidth = [...panelMap.values()].sort((a, b) => b.fullWidthMm - a.fullWidthMm);
     phases.push({
-      tool: "Note", toolClass: "tool-note",
+      tool: "Glue", toolClass: "tool-glue",
       heading: "Glue up panels — widest first",
       note: "Dry-fit strips before gluing. Apply glue to both mating edges. Clamp overnight. After cure, face-joint and plane each panel to rough thickness before final milling.",
       groups: byWidth.map((panel) => ({
@@ -4171,7 +4186,7 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
 
     // Step C — glue-up and clamp (thickest first = most clamps needed)
     phases.push({
-      tool: "Note", toolClass: "tool-note",
+      tool: "Glue", toolClass: "tool-glue",
       heading: "Glue up and clamp — thickest assembly first",
       note: "Dry-fit before gluing. Apply glue to both mating faces. Align grain. Clamp with cauls to keep the assembly flat. Let cure fully before unclamping (overnight minimum).",
       groups: [{

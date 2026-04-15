@@ -577,6 +577,8 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
 .tool-mitersaw { background: #fce8cc; color: #7a3c00; }
 .tool-tablesaw { background: #fff0b8; color: #5a4400; }
 .tool-note     { background: #ece5d8; color: #5a4a38; }
+.tool-glue     { background: #dbeafe; color: #1e3a8a; }
+.tool-milling  { background: #fde8f4; color: #7a1a5a; }
 
 .workshop-section-heading {
   margin: 14px 0 6px;
