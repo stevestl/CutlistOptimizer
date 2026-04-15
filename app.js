@@ -3587,6 +3587,7 @@ function buildCutSequence(board, partsMap) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
+  const stockMm       = quarterToMm(board.thicknessQuarter);
   const maxRoughThick = maxRoughThickForBoard(board, partsMap);
   const trimEach      = board.trimOffsetMm ?? 25.4;
 
