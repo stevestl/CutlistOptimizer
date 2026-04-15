@@ -3513,11 +3513,16 @@ function buildWorkshopPartsTable(board, partsMap) {
 
     const roughTd = tr.insertCell();
     if (part) {
-      const isPanelStrip = p.panelStripCount > 1;
+      const isPanelStrip  = p.panelStripCount > 1;
+      const isLaminated   = part.layers > 1;
+      const perLayerThick = isLaminated ? roundTo(part.roughThicknessMm / part.layers, 1) : part.roughThicknessMm;
+      const thickStr      = isLaminated
+        ? `${formatMm(perLayerThick, 0)}/layer (${part.layers} layers → ${formatMm(part.roughThicknessMm, 0)} after glue-up)`
+        : formatMm(part.roughThicknessMm, 0);
       roughTd.textContent = isPanelStrip
-        ? `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}` +
+        ? `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${thickStr}` +
           ` (strip ${p.panelStripIndex}/${p.panelStripCount} → panel ${formatMm(p.panelFullWidthMm, 0)} W)`
-        : `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${formatMm(part.roughThicknessMm, 0)}`;
+        : `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × ${thickStr}`;
     } else {
       roughTd.textContent = `${formatMm(p.lengthMm, 0)} × ${formatMm(p.widthMm, 0)} × —`;
     }
@@ -3571,11 +3576,26 @@ function groupBy(arr, keyFn) {
   return map;
 }
 
-/** Max rough thickness needed across all placements on a board. */
+/** Max rough thickness needed across all placements on a board (full assembled thickness). */
 function maxRoughThickForBoard(board, partsMap) {
   return board.placements.reduce((mx, p) => {
     const pt = partsMap.get(p.partId);
     return Math.max(mx, pt ? pt.roughThicknessMm : 0);
+  }, 0) || quarterToMm(board.thicknessQuarter);
+}
+
+/**
+ * Per-layer planing target for a board.
+ * For single-layer parts this equals roughThicknessMm.
+ * For laminated parts each blank is planed to roughThicknessMm / layers,
+ * then layers are glued together AFTER cutting.
+ */
+function planeThickForBoard(board, partsMap) {
+  return board.placements.reduce((mx, p) => {
+    const pt = partsMap.get(p.partId);
+    if (!pt) return mx;
+    const perLayer = roundTo(pt.roughThicknessMm / Math.max(1, pt.layers), 1);
+    return Math.max(mx, perLayer);
   }, 0) || quarterToMm(board.thicknessQuarter);
 }
 
@@ -3589,7 +3609,12 @@ function buildCutSequence(board, partsMap) {
 
   const stockMm       = quarterToMm(board.thicknessQuarter);
   const maxRoughThick = maxRoughThickForBoard(board, partsMap);
+  // planeThickMm is the target for the PLANER at this stage.
+  // For laminated parts the blanks are planed to roughThicknessMm / layers — the layers
+  // are glued together AFTER cutting, then flattened as a glued assembly.
+  const planeThickMm  = planeThickForBoard(board, partsMap);
   const trimEach      = board.trimOffsetMm ?? 25.4;
+  const hasLam        = board.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1);
 
   // ── Initial milling ──────────────────────────────────────────
   spacer("Inspect", "tool-inspect",
@@ -3599,21 +3624,24 @@ function buildCutSequence(board, partsMap) {
   spacer("Jointer", "tool-jointer",
     "Face joint one face flat. This becomes your reference face (face against the planer bed).");
 
-  // Re-saw suggestion: if stock is more than ~12 mm thicker than the thickest part needs
-  const resawExcess = stockMm - maxRoughThick;
+  // Re-saw suggestion: if stock is more than ~12 mm thicker than the per-layer target
+  const resawExcess = stockMm - planeThickMm;
   if (resawExcess > 12) {
-    const resawTarget = roundTo(maxRoughThick + 3, 0.5);
+    const resawTarget = roundTo(planeThickMm + 3, 0.5);
     spacer("Band saw", "tool-bandsaw",
       `Re-saw to ≈${formatMm(resawTarget, 0)} — stock is ${formatMm(stockMm, 0)} ` +
-      `but parts only need ${formatMm(maxRoughThick, 0)} rough thickness. ` +
-      `Re-sawing now saves ${formatMm(resawExcess - 3, 0)} of planer time and reduces waste. ` +
+      `but blanks only need ${formatMm(planeThickMm, 0)} before glue-up. ` +
+      `Re-sawing saves ${formatMm(resawExcess - 3, 0)} of planer travel. ` +
       `Save the off-cut for thinner parts.`);
     spacer("Jointer", "tool-jointer",
       "Light face-joint pass on the re-sawn face to remove saw marks before planing.");
   }
 
+  const lamThickNote = hasLam
+    ? ` (per-layer target — blanks will be glued up to full thickness after cutting)`
+    : "";
   spacer("Planer", "tool-planer",
-    `Plane to rough thickness: ${formatMm(maxRoughThick, 1)}. ` +
+    `Plane to ${formatMm(planeThickMm, 1)}${lamThickNote}. ` +
     `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.`);
 
   spacer("Jointer", "tool-jointer",
@@ -3648,8 +3676,12 @@ function buildCutSequence(board, partsMap) {
     const byX = [...sec.placements].sort((a, b) => a.x - b.x);
     byX.forEach((p, pi) => {
       const part = partsMap.get(p.partId);
+      // Thickness of THIS blank = per-layer target (for laminated parts) or full rough thickness
+      const blankThickMm = part && part.layers > 1
+        ? roundTo(part.roughThicknessMm / part.layers, 1)
+        : (part ? part.roughThicknessMm : planeThickMm);
       const lamNote = (part && part.layers > 1)
-        ? ` · lamination layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers}`
+        ? ` · layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers} (glue-up after all blanks are cut)`
         : "";
       const crossCutNote = sectionLen > p.lengthMm + 1
         ? ` (cross-cut to ${formatMm(p.lengthMm, 0)} first)`
@@ -3658,7 +3690,7 @@ function buildCutSequence(board, partsMap) {
       spacer("Table saw", "tool-tablesaw",
         `Rip to ${formatMm(p.widthMm, 0)} wide${crossCutNote} → ` +
         `blank: ${formatMm(p.lengthMm, 0)} L × ${formatMm(p.widthMm, 0)} W × ` +
-        `${formatMm(maxRoughThick, 0)} T — "${p.partName}"${lamNote}.`);
+        `${formatMm(blankThickMm, 0)} T — "${p.partName}"${lamNote}.`);
     });
   });
 
@@ -3692,18 +3724,38 @@ function buildCutSequence(board, partsMap) {
     }
   }
 
-  // ── Lamination note ─────────────────────────────────────────
-  const laminatedParts = [...new Set(
-    board.placements
-      .map((p) => partsMap.get(p.partId))
-      .filter((pt) => pt && pt.layers > 1)
-      .map((pt) => pt.name)
-  )];
-  if (laminatedParts.length) {
+  // ── Lamination glue-up (comes after ALL blanks are cut) ─────
+  const lamGroups = new Map(); // partId → { name, layers, roughThickMm, perLayerMm }
+  for (const p of board.placements) {
+    const pt = partsMap.get(p.partId);
+    if (pt && pt.layers > 1 && !lamGroups.has(p.partId)) {
+      lamGroups.set(p.partId, {
+        name:         pt.name,
+        layers:       pt.layers,
+        roughThickMm: pt.roughThicknessMm,
+        perLayerMm:   roundTo(pt.roughThicknessMm / pt.layers, 1),
+        stripsOnBoard: board.placements.filter((q) => q.partId === p.partId).length,
+      });
+    }
+  }
+  if (lamGroups.size) {
+    const lamNames = [...lamGroups.values()].map((l) => `"${l.name}"`).join(", ");
     spacer("Note", "tool-note",
-      `Lamination: ${laminatedParts.join(", ")} require layers glued together to reach ` +
-      `full thickness. Glue up all layers for each part, clamp overnight, ` +
-      `then surface both faces before final milling.`);
+      `Collect all layer blanks for ${lamNames} — they may be spread across multiple boards. ` +
+      `Do NOT begin glue-up until every layer blank is cut.`);
+    for (const lam of lamGroups.values()) {
+      spacer("Jointer", "tool-jointer",
+        `"${lam.name}" — edge-joint the mating face of each of the ${lam.layers} layer blanks ` +
+        `(the face that will contact the next layer).`);
+      spacer("Note", "tool-note",
+        `Dry-fit all ${lam.layers} layers of "${lam.name}" and check alignment. ` +
+        `Apply glue to mating faces, assemble, and clamp overnight. ` +
+        `Each layer is ≈${formatMm(lam.perLayerMm, 1)} thick; ` +
+        `glued assembly target: ≈${formatMm(lam.roughThickMm, 1)} rough.`);
+      spacer("Jointer", "tool-jointer",
+        `After cure — scrape squeeze-out from "${lam.name}", then take one light face-joint pass ` +
+        `on both faces to flatten. Final rough thickness: ${formatMm(lam.roughThickMm, 1)}.`);
+    }
   }
 
   return steps;
@@ -3831,15 +3883,20 @@ function buildConsolidatedSchedule(result, partsMap) {
     });
   }
 
-  // ── Phase 4: Plane to rough thickness — thickest group first ────────────
-  const planeGroups = groupBy(boards, (b) => roundTo(maxRoughThickForBoard(b, partsMap), 1));
+  // ── Phase 4: Plane to per-layer thickness — thickest group first ─────────
+  // For laminated parts, each blank is planed to roughThicknessMm / layers.
+  // The blanks are glued up to full thickness AFTER all cutting is done.
+  const planeGroups = groupBy(boards, (b) => roundTo(planeThickForBoard(b, partsMap), 1));
   phases.push({
     tool: "Planer", toolClass: "tool-planer",
-    heading: "Plane all boards to rough thickness — thickest first",
-    note: "Set to the thickest group first, then step the planer down — never back up. Take ≤ 1 mm passes per face. Alternate faces between passes to release tension evenly.",
+    heading: "Plane all boards to (per-layer) thickness — thickest first",
+    note: "Set to the thickest group first, then step the planer down — never back up. For laminated parts the target shown is per layer, not the finished part thickness. Take ≤ 1 mm passes per face. Alternate faces.",
     groups: [...planeGroups.entries()].sort((a, b) => b[0] - a[0]).map(([t, bds], i) => ({
       setting: `${formatMm(t, 1)}${i === 0 ? "  ← set here first" : ""}`,
-      items: bds.map((b) => ({ label: b.id, detail: `${b.thicknessQuarter}/4" stock → ${formatMm(t, 1)} rough` })),
+      items: bds.map((b) => {
+        const bHasLam = b.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1);
+        return { label: b.id, detail: `${b.thicknessQuarter}/4" stock → ${formatMm(t, 1)}${bHasLam ? " per layer" : ""}` };
+      }),
     })),
   });
 
@@ -3973,26 +4030,78 @@ function buildConsolidatedSchedule(result, partsMap) {
     });
   }
 
-  // ── Final phase: Lamination glue-ups (if any) ────────────────────────────
+  // ── Final phases: Thickness lamination (if any) ──────────────────────────
+  // These come AFTER all blanks are cut so every layer is ready before glue-up begins.
   const lamParts = new Map();
   for (const b of boards) {
     for (const p of b.placements) {
       const pt = partsMap.get(p.partId);
       if (pt && pt.layers > 1 && !lamParts.has(pt.id)) {
-        lamParts.set(pt.id, { name: pt.name, layers: pt.layers, thick: pt.netThicknessMm });
+        lamParts.set(pt.id, {
+          name:         pt.name,
+          layers:       pt.layers,
+          netThickMm:   pt.netThicknessMm,
+          roughThickMm: pt.roughThicknessMm,
+          perLayerMm:   roundTo(pt.roughThicknessMm / pt.layers, 1),
+        });
       }
     }
   }
   if (lamParts.size) {
+    const lamList = [...lamParts.values()];
+
+    // Step A — collect and confirm all layer blanks are cut
     phases.push({
       tool: "Note", toolClass: "tool-note",
-      heading: "Thickness lamination glue-ups",
-      note: "Glue all thickness-lamination layers before final milling. Clamp overnight. After cure, surface both faces before ripping and cross-cutting to net dimensions.",
+      heading: "Collect all layer blanks before gluing",
+      note: "Every layer blank for every laminated part must be cut before any glue-up begins. Gather matching layers and label them.",
       groups: [{
         setting: null,
-        items: [...lamParts.values()].map((l) => ({
+        items: lamList.map((l) => ({
           label: l.name,
-          detail: `${l.layers} layers → net thickness ${formatMm(l.thick, 1)}`,
+          detail: `${l.layers} layers × ≈${formatMm(l.perLayerMm, 1)} each → ≈${formatMm(l.roughThickMm, 1)} rough after glue-up`,
+        })),
+      }],
+    });
+
+    // Step B — edge-joint the mating faces
+    phases.push({
+      tool: "Jointer", toolClass: "tool-jointer",
+      heading: "Edge-joint mating faces of lamination layer blanks",
+      note: "Joint only the faces that will be glued (not all faces). One pass per glue face is enough — just remove mill marks and get the surface flat.",
+      groups: [{
+        setting: null,
+        items: lamList.map((l) => ({
+          label: l.name,
+          detail: `joint ${l.layers - 1} glue face(s) per set`,
+        })),
+      }],
+    });
+
+    // Step C — glue-up and clamp (thickest first = most clamps needed)
+    phases.push({
+      tool: "Note", toolClass: "tool-note",
+      heading: "Glue up and clamp — thickest assembly first",
+      note: "Dry-fit before gluing. Apply glue to both mating faces. Align grain. Clamp with cauls to keep the assembly flat. Let cure fully before unclamping (overnight minimum).",
+      groups: [{
+        setting: null,
+        items: [...lamList].sort((a, b) => b.roughThickMm - a.roughThickMm).map((l) => ({
+          label: l.name,
+          detail: `${l.layers} layers clamped → ≈${formatMm(l.roughThickMm, 1)} rough`,
+        })),
+      }],
+    });
+
+    // Step D — flatten after cure
+    phases.push({
+      tool: "Jointer", toolClass: "tool-jointer",
+      heading: "Flatten laminated blanks after cure",
+      note: "Scrape squeeze-out first. Take one light face-joint pass on both faces to flatten the glue joint. The blank is now at rough thickness and ready for final milling.",
+      groups: [{
+        setting: null,
+        items: lamList.map((l) => ({
+          label: l.name,
+          detail: `flatten both faces → ${formatMm(l.roughThickMm, 1)} rough → final mill to ${formatMm(l.netThickMm, 1)} net`,
         })),
       }],
     });
