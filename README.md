@@ -97,6 +97,8 @@ Part orientation is fixed as requested:
 
 Projects are stored in **Firebase Cloud Storage** (Firestore). Users must sign in via the avatar button to save and load projects.
 
+Saved projects include the **final inventory result** (Lumber Yard Recalculate output) so the Workshop tab restores correctly on load. `freeRects` data is stripped before saving to keep document size small.
+
 ## Firebase Setup Steps
 
 1. Create a Firebase project in the Firebase console.

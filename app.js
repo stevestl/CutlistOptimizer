@@ -222,6 +222,12 @@ const dom = {
   authResetCancel:         document.querySelector("#auth-reset-cancel"),
   authResetMessage:        document.querySelector("#auth-reset-message"),
 
+  // Mobile tab hamburger
+  tabNavMobile:       document.querySelector("#tab-nav-mobile"),
+  tabHamburger:       document.querySelector("#tab-hamburger"),
+  tabHamburgerLabel:  document.querySelector("#tab-hamburger-label"),
+  tabDropdown:        document.querySelector("#tab-dropdown"),
+
   // User menu (topbar)
   userMenuWrap:       document.querySelector("#user-menu-wrap"),
   userMenuBtn:        document.querySelector("#user-menu-btn"),
@@ -296,6 +302,26 @@ function wireEvents() {
 
   // Admin tab
   dom.adminRefreshUsers.addEventListener("click", loadAdminUsersAndProjects);
+
+  // Mobile tab hamburger
+  dom.tabHamburger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = dom.tabDropdown.classList.toggle("hidden") === false;
+    dom.tabHamburger.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", () => {
+    if (!dom.tabDropdown.classList.contains("hidden")) {
+      dom.tabDropdown.classList.add("hidden");
+      dom.tabHamburger.setAttribute("aria-expanded", "false");
+    }
+  });
+  dom.tabDropdown.querySelectorAll(".tab-dropdown-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchTab(btn.dataset.tabTarget);
+      dom.tabDropdown.classList.add("hidden");
+      dom.tabHamburger.setAttribute("aria-expanded", "false");
+    });
+  });
 
   // User menu toggle
   dom.userMenuBtn.addEventListener("click", toggleUserMenu);
@@ -416,6 +442,14 @@ function switchTab(tabName) {
   dom.tabInstructions.classList.toggle("active", tabName === "instructions");
   for (const content of dom.tabContents) {
     content.classList.toggle("hidden", content.getAttribute("data-tab") !== tabName);
+  }
+
+  // Sync mobile hamburger label and active item
+  if (dom.tabHamburgerLabel) {
+    const activeItem = dom.tabDropdown?.querySelector(`[data-tab-target="${tabName}"]`);
+    dom.tabHamburgerLabel.textContent = activeItem?.textContent ?? tabName;
+    dom.tabDropdown?.querySelectorAll(".tab-dropdown-item")
+      .forEach((btn) => btn.classList.toggle("active", btn.dataset.tabTarget === tabName));
   }
 }
 
@@ -759,6 +793,15 @@ async function saveProject() {
   const projects = await readProjectsActive();
   const existing = projects.find((p) => p.name === name);
   const ownerUid = state.firebase.user?.uid || null;
+
+  // Strip freeRects from each board to keep the document small
+  const finalInventory = state.inventoryResult
+    ? {
+        ...state.inventoryResult,
+        boards: state.inventoryResult.boards.map(({ freeRects: _, ...b }) => b),
+      }
+    : null;
+
   const payload  = {
     id:       existing ? existing.id : crypto.randomUUID(),
     name,
@@ -766,6 +809,7 @@ async function saveProject() {
     objText:  state.objText,
     ownerUid,
     inputs:   data,
+    finalInventory,
   };
 
   try {
@@ -804,6 +848,7 @@ async function loadSelectedProject() {
   dom.projectName.value = project.name || "";
   state.objText         = project.objText || "";
   restoreInputs(project.inputs || {});
+  state.inventoryResult = project.finalInventory ?? null;
 
   if (state.objText) {
     runAnalyze();
@@ -1249,6 +1294,9 @@ async function loadAdminUsersAndProjects() {
 function updateSettingsTabVisibility() {
   const isAdmin = state.firebase.role === "admin";
   dom.tabSettings.classList.toggle("hidden", !isAdmin);
+  // Mirror visibility in the mobile dropdown
+  const mobileAdminItem = dom.tabDropdown?.querySelector('[data-tab-target="settings"]');
+  if (mobileAdminItem) mobileAdminItem.classList.toggle("hidden", !isAdmin);
   // If currently on the Settings tab but no longer admin, redirect to Planning
   if (!isAdmin && state.activeTab === "settings") {
     switchTab("planning");

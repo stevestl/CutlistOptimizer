@@ -581,6 +581,61 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   color: var(--ink-soft);
 }
 
+/* ── Mobile tab hamburger ───────────────────────────────────────────────────── */
+
+.tab-nav-mobile { display: none; position: relative; }
+
+.tab-hamburger-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tab-hamburger-btn:hover { background: #ede4d6; filter: none; }
+
+.tab-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(44,35,26,0.18);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.tab-dropdown.hidden { display: none; }
+
+.tab-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tab-dropdown-item:last-child { border-bottom: none; }
+.tab-dropdown-item:hover { background: #ede4d6; }
+.tab-dropdown-item.active { font-weight: 700; color: var(--accent); }
+.tab-dropdown-item.hidden { display: none; }
+
 /* ── Responsive ─────────────────────────────────────────────── */
 
 @media (max-width: 900px) {
@@ -600,9 +655,13 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
 
   /* Buttons that must stay compact regardless of width */
   .override-row button,
+  .project-row-actions button,
   .tab-btn,
   .user-menu-item,
   .link-btn { width: auto; }
+
+  .tab-nav        { display: none; }
+  .tab-nav-mobile { display: block; }
 
   /* Collapse form grids to single column so nothing overflows */
   .import-grid { grid-template-columns: 1fr; }
