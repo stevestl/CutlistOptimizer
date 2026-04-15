@@ -794,11 +794,14 @@ async function saveProject() {
   const existing = projects.find((p) => p.name === name);
   const ownerUid = state.firebase.user?.uid || null;
 
-  // Strip freeRects from each board to keep the document small
+  // Serialize inventoryResult for Firestore:
+  //  • strip freeRects (large, only needed during packing)
+  //  • convert boardUsage Map → plain object (Firestore cannot store Map)
   const finalInventory = state.inventoryResult
     ? {
         ...state.inventoryResult,
-        boards: state.inventoryResult.boards.map(({ freeRects: _, ...b }) => b),
+        boards:     state.inventoryResult.boards.map(({ freeRects: _, ...b }) => b),
+        boardUsage: Object.fromEntries(state.inventoryResult.boardUsage),
       }
     : null;
 
@@ -848,7 +851,11 @@ async function loadSelectedProject() {
   dom.projectName.value = project.name || "";
   state.objText         = project.objText || "";
   restoreInputs(project.inputs || {});
-  state.inventoryResult = project.finalInventory ?? null;
+  // Restore finalInventory, converting boardUsage back from plain object → Map
+  const fi = project.finalInventory ?? null;
+  state.inventoryResult = fi
+    ? { ...fi, boardUsage: new Map(Object.entries(fi.boardUsage ?? {})) }
+    : null;
 
   if (state.objText) {
     runAnalyze();
