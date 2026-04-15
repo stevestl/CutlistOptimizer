@@ -590,6 +590,68 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
   color: var(--ink-soft);
 }
 
+/* ── Consolidated mill schedule ────────────────────────────────────────────── */
+
+.workshop-consolidated-card {
+  margin-top: 28px;
+  border-top: 3px solid var(--accent, #c8a97a);
+}
+
+.consolidated-phase {
+  border-bottom: 1px solid #ece5d8;
+  padding: 12px 0 10px;
+}
+.consolidated-phase:last-child { border-bottom: none; }
+
+.consolidated-phase-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.consolidated-phase-num {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  min-width: 4.5em;
+  flex-shrink: 0;
+}
+
+.consolidated-phase-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.consolidated-phase-note {
+  margin: 2px 0 6px 5em;
+  font-size: 0.82rem;
+}
+
+.consolidated-group {
+  margin: 6px 0 4px 5em;
+}
+
+.consolidated-group-setting {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #5a4a38;
+  margin-bottom: 3px;
+}
+
+.consolidated-items {
+  margin: 0;
+  padding: 0 0 0 1.2em;
+  font-size: 0.82rem;
+}
+.consolidated-items li {
+  margin-bottom: 1px;
+  line-height: 1.5;
+}
+
 /* ── Mobile tab hamburger ───────────────────────────────────────────────────── */
 
 .tab-nav-mobile { display: none; position: relative; }

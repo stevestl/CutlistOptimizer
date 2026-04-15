@@ -3252,6 +3252,12 @@ function renderWorkshopTab() {
 
     dom.workshopContent.append(card);
   });
+
+  // ── Consolidated schedule ────────────────────────────────────
+  const phases = buildConsolidatedSchedule(result, partsMap);
+  if (phases.length) {
+    dom.workshopContent.append(renderConsolidatedSchedule(phases));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3259,22 +3265,34 @@ function renderWorkshopTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function printWorkshopPDF() {
-  const cards = dom.workshopContent?.querySelectorAll(".workshop-board-card");
-  if (!cards || !cards.length) {
+  const allCards = dom.workshopContent?.querySelectorAll(".workshop-board-card");
+  if (!allCards || !allCards.length) {
     setStatus("No workshop boards to print. Run Plan Stock or Recalculate first.", "error");
     return;
   }
 
   const projectName = (dom.projectName.value || "").trim() || "Workshop Plan";
+  const cssHref     = document.querySelector('link[rel="stylesheet"]')?.href ?? "";
 
-  // Grab the stylesheet URL so the print window inherits all styles.
-  const cssHref = document.querySelector('link[rel="stylesheet"]')?.href ?? "";
+  // Format date/time for footer
+  const now = new Date();
+  const dateStr = now.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const footerText = `${projectName} — Workshop Cut Guide · Printed ${dateStr} at ${timeStr}`;
 
-  // Build one <section> per board; page-break-after forces a new PDF page.
-  const boardSections = [...cards].map((card, i) => {
-    const isLast = i === cards.length - 1;
-    return `<section class="workshop-board-card print-board"${isLast ? "" : ' style="page-break-after:always;break-after:page;"'}>${card.innerHTML}</section>`;
-  }).join("\n");
+  // Board cards (all except the consolidated schedule card, which gets its own last page)
+  const boardCards = [...allCards].filter((c) => !c.classList.contains("workshop-consolidated-card"));
+  const consolidatedCard = dom.workshopContent?.querySelector(".workshop-consolidated-card");
+
+  // Each board card = one page; consolidated card = final page
+  const pageSections = [
+    ...boardCards.map((card) =>
+      `<section class="workshop-board-card print-board" style="page-break-after:always;break-after:page;">${card.innerHTML}</section>`
+    ),
+    consolidatedCard
+      ? `<section class="workshop-board-card print-board">${consolidatedCard.innerHTML}</section>`
+      : "",
+  ].join("\n");
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -3288,46 +3306,52 @@ function printWorkshopPDF() {
       font-size: 13px;
       color: #2c2416;
       margin: 0;
-      padding: 0;
+      padding: 0 0 28px;
       background: #fff;
-    }
-    .print-title {
-      padding: 18px 24px 6px;
-      font-size: 1.05rem;
-      font-weight: 700;
-      border-bottom: 2px solid #c8a97a;
-      margin-bottom: 0;
     }
     .workshop-board-card.print-board {
       border: none;
       border-radius: 0;
-      padding: 20px 24px;
+      padding: 20px 28px;
       box-shadow: none;
       background: #fff;
     }
+    .print-footer {
+      display: none;
+    }
     @media print {
-      body { margin: 0; }
-      .print-title { padding: 0 0 6px; margin: 0 0 4px; }
+      body { margin: 0; padding: 0 0 32px; }
       .workshop-board-card.print-board {
-        padding: 0;
+        padding: 12px 20px;
         border: none !important;
         box-shadow: none !important;
         background: #fff !important;
       }
-      /* Suppress background colours on tool badges for ink savings */
       .workshop-tool {
         border: 1px solid #999 !important;
         background: #fff !important;
         color: #333 !important;
       }
+      .print-footer {
+        display: block;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 4px 20px;
+        font-size: 9px;
+        color: #888;
+        border-top: 1px solid #ddd;
+        background: #fff;
+        text-align: center;
+      }
     }
   </style>
 </head>
 <body>
-  <p class="print-title">${projectName} — Workshop Cut Guide</p>
-  ${boardSections}
+  ${pageSections}
+  <div class="print-footer">${footerText}</div>
   <script>
-    // Auto-print once styles are loaded; fall back after 800 ms.
     window.addEventListener("load", function() { window.print(); });
     setTimeout(function() { window.print(); }, 800);
   <\/script>
@@ -3457,6 +3481,49 @@ function buildWorkshopPartsTable(board, partsMap) {
   return table;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared workshop helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Group placements on a board into cross-cut sections.
+ * Placements whose y-ranges overlap share a section (can be cut from one piece).
+ */
+function buildSections(board) {
+  const sorted = [...board.placements].sort((a, b) => a.y - b.y);
+  const sections = [];
+  for (const p of sorted) {
+    const pEnd = p.y + p.lengthMm;
+    const last  = sections[sections.length - 1];
+    if (last && p.y < last.endY + EPSILON) {
+      last.endY = Math.max(last.endY, pEnd);
+      last.placements.push(p);
+    } else {
+      sections.push({ startY: p.y, endY: pEnd, placements: [p] });
+    }
+  }
+  return sections;
+}
+
+/** Group an array into a Map keyed by keyFn(item). */
+function groupBy(arr, keyFn) {
+  const map = new Map();
+  for (const item of arr) {
+    const key = keyFn(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+/** Max rough thickness needed across all placements on a board. */
+function maxRoughThickForBoard(board, partsMap) {
+  return board.placements.reduce((mx, p) => {
+    const pt = partsMap.get(p.partId);
+    return Math.max(mx, pt ? pt.roughThicknessMm : 0);
+  }, 0) || quarterToMm(board.thicknessQuarter);
+}
+
 /**
  * Generate a step-by-step cut sequence for a single board.
  * Steps are objects: { tool, toolClass, text }
@@ -3465,15 +3532,8 @@ function buildCutSequence(board, partsMap) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
-  const stockMm = quarterToMm(board.thicknessQuarter);
-
-  // Thickness needed: max rough thickness of parts placed on this board
-  const maxRoughThick = board.placements.reduce((max, p) => {
-    const part = partsMap.get(p.partId);
-    return Math.max(max, part ? part.roughThicknessMm : 0);
-  }, 0) || stockMm;
-
-  const trimEach = board.trimOffsetMm ?? 25.4;
+  const maxRoughThick = maxRoughThickForBoard(board, partsMap);
+  const trimEach      = board.trimOffsetMm ?? 25.4;
 
   // ── Initial milling ──────────────────────────────────────────
   spacer("Inspect", "tool-inspect",
@@ -3508,22 +3568,7 @@ function buildCutSequence(board, partsMap) {
     `end checks. You now have ${formatMm(board.usableLengthMm ?? (board.lengthMm - 2 * trimEach), 0)} of usable length.`);
 
   // ── Blank cuts ───────────────────────────────────────────────
-  // Sort placements by y (distance from reference end along board length)
-  const sorted = [...board.placements].sort((a, b) => a.y - b.y);
-
-  // Group into cross-cut sections: placements whose y-ranges overlap share a section.
-  const sections = [];
-  for (const p of sorted) {
-    const pEnd = p.y + p.lengthMm;
-    const last = sections[sections.length - 1];
-    if (last && p.y < last.endY + EPSILON) {
-      // Overlapping in length — same cross-cut section
-      last.endY = Math.max(last.endY, pEnd);
-      last.placements.push(p);
-    } else {
-      sections.push({ startY: p.y, endY: pEnd, placements: [p] });
-    }
-  }
+  const sections = buildSections(board);
 
   if (sections.length > 1) {
     spacer("Note", "tool-note",
@@ -3633,6 +3678,275 @@ function buildFinalMillingBox(board, partsMap) {
   box.append(note);
 
   return box;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consolidated Mill Schedule
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a cross-board milling schedule optimised to minimise tool adjustments.
+ * Returns an array of phase objects: { tool, toolClass, heading, note, groups[] }
+ * Each group: { setting, items[] }  where item: { label, detail }
+ */
+function buildConsolidatedSchedule(result, partsMap) {
+  const boards = result.boards;
+  if (!boards.length) return [];
+
+  const phases = [];
+  const boardDesc = (b) =>
+    `${b.thicknessQuarter}/4 × ${formatInches(b.widthIn)} × ${formatFeet(b.lengthFt, 1)}`;
+
+  // ── Phase 1: Inspect all boards ─────────────────────────────────────────
+  phases.push({
+    tool: "Inspect", toolClass: "tool-inspect",
+    heading: "Inspect all boards",
+    note: "Before any milling, check every board for cupping, bowing, twist, and surface defects. Mark knots and checks to work around during layout.",
+    groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: boardDesc(b) })) }],
+  });
+
+  // ── Phase 2: Face joint all boards ──────────────────────────────────────
+  phases.push({
+    tool: "Jointer", toolClass: "tool-jointer",
+    heading: "Face joint all boards",
+    note: "One flat reference face per board. Mark the jointed face. No fence or depth change between boards.",
+    groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: boardDesc(b) })) }],
+  });
+
+  // ── Phase 3: Re-saw oversize boards (optional) ───────────────────────────
+  const resawItems = boards.map((b) => {
+    const stockMm = quarterToMm(b.thicknessQuarter);
+    const needed  = maxRoughThickForBoard(b, partsMap);
+    const excess  = stockMm - needed;
+    if (excess <= 12) return null;
+    const target = roundTo(needed + 3, 1);
+    return { boardId: b.id, stockMm, needed, target };
+  }).filter(Boolean);
+
+  if (resawItems.length) {
+    const byTarget = groupBy(resawItems, (r) => roundTo(r.target, 1));
+    phases.push({
+      tool: "Band saw", toolClass: "tool-bandsaw",
+      heading: "Re-saw oversize boards — thickest target first",
+      note: "Do all re-saws before planing. Move blade down only. Save off-cuts for thinner parts.",
+      groups: [...byTarget.entries()].sort((a, b) => b[0] - a[0]).map(([t, items]) => ({
+        setting: `Re-saw to ≈${formatMm(t, 0)}`,
+        items: items.map((r) => ({
+          label: r.boardId,
+          detail: `${formatMm(r.stockMm, 0)} stock → saves ${formatMm(r.stockMm - r.target, 0)} of planer travel`,
+        })),
+      })),
+    });
+    phases.push({
+      tool: "Jointer", toolClass: "tool-jointer",
+      heading: "Light face-joint re-sawn faces",
+      note: "One light pass on each re-sawn face only, to remove saw marks before planing.",
+      groups: [{ setting: null, items: resawItems.map((r) => ({ label: r.boardId, detail: "re-sawn face" })) }],
+    });
+  }
+
+  // ── Phase 4: Plane to rough thickness — thickest group first ────────────
+  const planeGroups = groupBy(boards, (b) => roundTo(maxRoughThickForBoard(b, partsMap), 1));
+  phases.push({
+    tool: "Planer", toolClass: "tool-planer",
+    heading: "Plane all boards to rough thickness — thickest first",
+    note: "Set to the thickest group first, then step the planer down — never back up. Take ≤ 1 mm passes per face. Alternate faces between passes to release tension evenly.",
+    groups: [...planeGroups.entries()].sort((a, b) => b[0] - a[0]).map(([t, bds], i) => ({
+      setting: `${formatMm(t, 1)}${i === 0 ? "  ← set here first" : ""}`,
+      items: bds.map((b) => ({ label: b.id, detail: `${b.thicknessQuarter}/4" stock → ${formatMm(t, 1)} rough` })),
+    })),
+  });
+
+  // ── Phase 5: Joint reference edge — all boards ───────────────────────────
+  phases.push({
+    tool: "Jointer", toolClass: "tool-jointer",
+    heading: "Joint reference edge — all boards",
+    note: "One straight edge per board. This edge registers against the table saw rip fence for all subsequent rip cuts.",
+    groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: "" })) }],
+  });
+
+  // ── Phase 6: Trim both ends — all boards ────────────────────────────────
+  phases.push({
+    tool: "Miter saw", toolClass: "tool-mitersaw",
+    heading: "Trim both ends — all boards",
+    note: "Square up both ends and remove end checks. No stop block needed for this step.",
+    groups: [{
+      setting: null,
+      items: boards.map((b) => {
+        const trim   = b.trimOffsetMm ?? 25.4;
+        const usable = b.usableLengthMm ?? (b.lengthMm - 2 * trim);
+        return { label: b.id, detail: `trim ≈${formatMm(trim, 0)} each end → ${formatMm(usable, 0)} usable` };
+      }),
+    }],
+  });
+
+  // ── Phase 7: Cross-cut sections — longest stop position first ────────────
+  const allCuts = [];
+  for (const b of boards) {
+    const sections = buildSections(b);
+    if (sections.length <= 1) continue;
+    const trim = b.trimOffsetMm ?? 25.4;
+    // Every section except the last needs a cross-cut; measure from trimmed reference end
+    sections.slice(0, -1).forEach((sec, si) => {
+      const pos  = roundTo(sec.endY - trim, 1);
+      const len  = roundTo(sec.endY - sec.startY, 1);
+      const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
+      allCuts.push({ boardId: b.id, pos, len, names, si });
+    });
+  }
+
+  if (allCuts.length) {
+    const cutGroups = groupBy(allCuts, (c) => roundTo(c.pos, 1));
+    phases.push({
+      tool: "Miter saw", toolClass: "tool-mitersaw",
+      heading: "Cross-cut sections — longest measurement first",
+      note: "Set stop block to the longest measurement first, then move it inward only. Process all boards at each stop before adjusting.",
+      groups: [...cutGroups.entries()].sort((a, b) => b[0] - a[0]).map(([pos, cuts]) => ({
+        setting: `Stop at ${formatMm(pos, 0)} from reference end`,
+        items: cuts.map((c) => ({
+          label: c.boardId,
+          detail: `section ${c.si + 1}: ${formatMm(c.len, 0)} long — ${c.names}`,
+        })),
+      })),
+    });
+  }
+
+  // ── Phase 8: Rip all blanks — widest fence setting first ─────────────────
+  const allRips = [];
+  for (const b of boards) {
+    const roughT = maxRoughThickForBoard(b, partsMap);
+    for (const p of b.placements) {
+      const pt = partsMap.get(p.partId);
+      allRips.push({
+        boardId: b.id,
+        name:    p.partName,
+        w:       roundTo(p.widthMm,   1),
+        l:       roundTo(p.lengthMm,  1),
+        t:       roundTo(pt ? pt.roughThicknessMm : roughT, 1),
+      });
+    }
+  }
+
+  const ripGroups = groupBy(allRips, (r) => r.w);
+  phases.push({
+    tool: "Table saw", toolClass: "tool-tablesaw",
+    heading: "Rip all blanks to rough width — widest fence first",
+    note: "Set fence to widest dimension first. Move fence inward only — never outward. Process every part at each setting before adjusting the fence.",
+    groups: [...ripGroups.entries()].sort((a, b) => b[0] - a[0]).map(([w, rips]) => ({
+      setting: `Fence at ${formatMm(w, 0)}`,
+      items: rips.map((r) => ({
+        label: r.boardId,
+        detail: `${r.name}: ${formatMm(r.l, 0)} × ${formatMm(r.w, 0)} × ${formatMm(r.t, 0)}`,
+      })),
+    })),
+  });
+
+  // ── Phase 9: Lamination glue-ups (if any) ────────────────────────────────
+  const lamParts = new Map();
+  for (const b of boards) {
+    for (const p of b.placements) {
+      const pt = partsMap.get(p.partId);
+      if (pt && pt.layers > 1 && !lamParts.has(pt.id)) {
+        lamParts.set(pt.id, { name: pt.name, layers: pt.layers, thick: pt.netThicknessMm });
+      }
+    }
+  }
+  if (lamParts.size) {
+    phases.push({
+      tool: "Note", toolClass: "tool-note",
+      heading: "Lamination glue-ups",
+      note: "Glue all lamination layers before final milling. Clamp overnight. After cure, surface both faces before ripping and cross-cutting to net dimensions.",
+      groups: [{
+        setting: null,
+        items: [...lamParts.values()].map((l) => ({
+          label: l.name,
+          detail: `${l.layers} layers → net thickness ${formatMm(l.thick, 1)}`,
+        })),
+      }],
+    });
+  }
+
+  return phases;
+}
+
+/**
+ * Render the consolidated schedule phases into a DOM card element.
+ */
+function renderConsolidatedSchedule(phases) {
+  const card = document.createElement("div");
+  card.className = "workshop-board-card workshop-consolidated-card";
+
+  const heading = document.createElement("h3");
+  heading.textContent = "Consolidated Mill Schedule";
+  card.append(heading);
+
+  const intro = document.createElement("p");
+  intro.className = "muted";
+  intro.style.marginTop = "0";
+  intro.textContent =
+    "Process all boards together through each phase to minimise tool adjustments. " +
+    "Complete each phase for all boards before moving to the next.";
+  card.append(intro);
+
+  phases.forEach((phase, idx) => {
+    const phaseDiv = document.createElement("div");
+    phaseDiv.className = "consolidated-phase";
+
+    // Phase header row
+    const head = document.createElement("div");
+    head.className = "consolidated-phase-head";
+
+    const num = document.createElement("span");
+    num.className = "consolidated-phase-num";
+    num.textContent = `Phase ${idx + 1}`;
+
+    const badge = document.createElement("span");
+    badge.className = `workshop-tool ${phase.toolClass}`;
+    badge.textContent = phase.tool;
+
+    const title = document.createElement("span");
+    title.className = "consolidated-phase-title";
+    title.textContent = phase.heading;
+
+    head.append(num, badge, title);
+    phaseDiv.append(head);
+
+    if (phase.note) {
+      const noteEl = document.createElement("p");
+      noteEl.className = "muted consolidated-phase-note";
+      noteEl.textContent = phase.note;
+      phaseDiv.append(noteEl);
+    }
+
+    for (const group of phase.groups) {
+      const groupDiv = document.createElement("div");
+      groupDiv.className = "consolidated-group";
+
+      if (group.setting) {
+        const settingEl = document.createElement("div");
+        settingEl.className = "consolidated-group-setting";
+        settingEl.textContent = `⚙ ${group.setting}`;
+        groupDiv.append(settingEl);
+      }
+
+      const ul = document.createElement("ul");
+      ul.className = "consolidated-items";
+      for (const item of group.items) {
+        const li = document.createElement("li");
+        const lbl = document.createElement("strong");
+        lbl.textContent = item.label;
+        li.append(lbl);
+        if (item.detail) li.append(` — ${item.detail}`);
+        ul.append(li);
+      }
+      groupDiv.append(ul);
+      phaseDiv.append(groupDiv);
+    }
+
+    card.append(phaseDiv);
+  });
+
+  return card;
 }
 
 function renderLayouts(target, boards) {

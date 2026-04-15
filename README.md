@@ -60,7 +60,7 @@ Part orientation is fixed as requested:
    - Activated automatically after Plan Stock or Recalculate.
    - Prefers Lumber Yard Recalculate result (real boards); falls back to Plan Stock.
    - Per-board cards showing: board description, parts table (rough + net dims + grain), recommended cut sequence, final milling reference.
-   - **🖨 Print / Save PDF** button exports the guide as a PDF (one page per board) via the browser's print dialog.
+   - **🖨 Print / Save PDF** button exports the guide as a PDF — one page per board plus a final consolidated schedule page. Each page footer shows the project name and print date/time.
    - **Cut sequence** covers the full standard milling workflow per board:
      - Inspect for defects / warp
      - Face joint (jointer) → plane to rough thickness (planer)
@@ -69,6 +69,7 @@ Part orientation is fixed as requested:
      - Cross-cut sections (miter saw) → rip blanks to width (table saw), ordered left-to-right
      - Lamination note when layers must be glued up
    - **Final milling reference** table shows net target dimensions (T/W/L) per part.
+   - **Consolidated Mill Schedule** card (bottom of the tab and last PDF page) sequences all operations across every board to minimise planer height changes, table saw fence moves, and miter saw stop adjustments. Phases: Inspect → Face joint → (Re-saw) → Plane by thickness group (thickest first) → Joint edge → Trim ends → Cross-cut by length (longest first) → Rip by width (widest first) → Lamination glue-up.
 
 5. **Lumber-yard recalculation**
    - Re-optimizes against real inventory rows.
