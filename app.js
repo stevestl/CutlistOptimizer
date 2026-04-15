@@ -836,6 +836,7 @@ async function saveProject() {
 }
 
 async function loadSelectedProject() {
+  console.log("[load] loadSelectedProject called");
   const selectedId = dom.projectSelect.value;
   if (!selectedId) {
     setStatus("Choose a saved project first.", "error");
@@ -864,15 +865,27 @@ async function loadSelectedProject() {
   // Restore finalInventory AFTER runAnalyze() so it isn't wiped by clearExistingResults.
   // Convert boardUsage from plain object (Firestore) back to Map.
   const fi = project.finalInventory ?? null;
+  console.log("[load] project.finalInventory present:", !!fi,
+    "boards:", fi?.boards?.length ?? 0,
+    "boardUsage keys:", fi?.boardUsage ? Object.keys(fi.boardUsage).length : 0);
+
   state.inventoryResult = fi
     ? { ...fi, boardUsage: new Map(Object.entries(fi.boardUsage ?? {})) }
     : null;
 
   if (state.inventoryResult) {
-    const inputs = collectInputs();
-    renderPlanSummary(dom.inventorySummary, state.inventoryResult, "Inventory fit result", inputs.pricePerBoardFoot);
-    renderLayouts(dom.inventoryLayouts, state.inventoryResult.boards);
-    renderWorkshopTab();
+    console.log("[load] restoring inventory:", state.inventoryResult.boards.length, "boards");
+    try {
+      const inputs = collectInputs();
+      renderPlanSummary(dom.inventorySummary, state.inventoryResult, "Inventory fit result", inputs.pricePerBoardFoot);
+      renderLayouts(dom.inventoryLayouts, state.inventoryResult.boards);
+      renderWorkshopTab();
+      console.log("[load] inventory render complete");
+    } catch (err) {
+      console.error("[load] inventory render error:", err);
+    }
+  } else {
+    console.log("[load] no finalInventory to restore");
   }
 
   markProjectClean();
