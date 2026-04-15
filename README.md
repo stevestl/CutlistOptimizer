@@ -60,6 +60,7 @@ Part orientation is fixed as requested:
    - Activated automatically after Plan Stock or Recalculate.
    - Prefers Lumber Yard Recalculate result (real boards); falls back to Plan Stock.
    - Per-board cards showing: board description, parts table (rough + net dims + grain), recommended cut sequence, final milling reference.
+   - **🖨 Print / Save PDF** button exports the guide as a PDF (one page per board) via the browser's print dialog.
    - **Cut sequence** covers the full standard milling workflow per board:
      - Inspect for defects / warp
      - Face joint (jointer) → plane to rough thickness (planer)

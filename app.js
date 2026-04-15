@@ -113,6 +113,7 @@ const dom = {
   tabInstructions: document.querySelector("#tab-instructions"),
   workshopSourceNote: document.querySelector("#workshop-source-note"),
   workshopContent:    document.querySelector("#workshop-content"),
+  workshopPrint:      document.querySelector("#workshop-print"),
   tabContents:     [...document.querySelectorAll(".tab-content")],
 
   // Project
@@ -285,6 +286,7 @@ function wireEvents() {
   dom.analyze.addEventListener("click",       runAnalyze);
   dom.plan.addEventListener("click",          runPlanning);
   dom.inventoryPlan.addEventListener("click", runInventoryPlan);
+  dom.workshopPrint?.addEventListener("click", printWorkshopPDF);
 
   // Project management
   dom.saveProject.addEventListener("click",   saveProject);
@@ -3250,6 +3252,95 @@ function renderWorkshopTab() {
 
     dom.workshopContent.append(card);
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workshop PDF print
+// ─────────────────────────────────────────────────────────────────────────────
+
+function printWorkshopPDF() {
+  const cards = dom.workshopContent?.querySelectorAll(".workshop-board-card");
+  if (!cards || !cards.length) {
+    setStatus("No workshop boards to print. Run Plan Stock or Recalculate first.", "error");
+    return;
+  }
+
+  const projectName = (dom.projectName.value || "").trim() || "Workshop Plan";
+
+  // Grab the stylesheet URL so the print window inherits all styles.
+  const cssHref = document.querySelector('link[rel="stylesheet"]')?.href ?? "";
+
+  // Build one <section> per board; page-break-after forces a new PDF page.
+  const boardSections = [...cards].map((card, i) => {
+    const isLast = i === cards.length - 1;
+    return `<section class="workshop-board-card print-board"${isLast ? "" : ' style="page-break-after:always;break-after:page;"'}>${card.innerHTML}</section>`;
+  }).join("\n");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${projectName} — Workshop Plan</title>
+  ${cssHref ? `<link rel="stylesheet" href="${cssHref}">` : ""}
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      color: #2c2416;
+      margin: 0;
+      padding: 0;
+      background: #fff;
+    }
+    .print-title {
+      padding: 18px 24px 6px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      border-bottom: 2px solid #c8a97a;
+      margin-bottom: 0;
+    }
+    .workshop-board-card.print-board {
+      border: none;
+      border-radius: 0;
+      padding: 20px 24px;
+      box-shadow: none;
+      background: #fff;
+    }
+    @media print {
+      body { margin: 0; }
+      .print-title { padding: 0 0 6px; margin: 0 0 4px; }
+      .workshop-board-card.print-board {
+        padding: 0;
+        border: none !important;
+        box-shadow: none !important;
+        background: #fff !important;
+      }
+      /* Suppress background colours on tool badges for ink savings */
+      .workshop-tool {
+        border: 1px solid #999 !important;
+        background: #fff !important;
+        color: #333 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <p class="print-title">${projectName} — Workshop Cut Guide</p>
+  ${boardSections}
+  <script>
+    // Auto-print once styles are loaded; fall back after 800 ms.
+    window.addEventListener("load", function() { window.print(); });
+    setTimeout(function() { window.print(); }, 800);
+  <\/script>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=700");
+  if (!win) {
+    setStatus("Pop-up blocked — please allow pop-ups for this page and try again.", "error");
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
 }
 
 // Build the same SVG used in renderLayouts but returns the element (no scale row).

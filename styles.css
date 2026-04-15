@@ -467,6 +467,15 @@ ul.compact { margin: 8px 0 0; padding-left: 18px; }
 
 /* ── Workshop tab ───────────────────────────────────────────── */
 
+.workshop-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.workshop-header-row h2 { margin: 0; }
+
 .workshop-board-card {
   border: 1px solid var(--border);
   border-radius: 10px;
