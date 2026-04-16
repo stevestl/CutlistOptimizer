@@ -833,7 +833,7 @@ async function saveProject() {
     markProjectClean();
     setStatus(
       `Saved project "${name}" to ${
-        activeStorageBackend() === "firebase" ? "Firebase cloud" : "local browser storage"
+        activeStorageBackend() === "firebase" ? "cloud" : "local browser storage"
       }.`,
       "ok"
     );
@@ -981,13 +981,13 @@ function deleteProjectLocal(id) {
 
 async function saveProjectFirebase(payload) {
   if (!state.firebase.connected || !state.firebase.db) {
-    throw new Error("Firebase is not connected.");
+    throw new Error("Not connected. Sign in to save projects.");
   }
-  // Guard against Firestore 1 MB document size limit
+  // Guard against cloud document size limit (~1 MB)
   const size = JSON.stringify(payload).length;
   if (size > 900_000) {
     throw new Error(
-      `Project data (~${Math.round(size / 1024)} KB) is near or over Firebase's 1 MB limit. ` +
+      `Project data (~${Math.round(size / 1024)} KB) is too large to save. ` +
         "Try saving without the OBJ file or reduce model complexity."
     );
   }
@@ -996,7 +996,7 @@ async function saveProjectFirebase(payload) {
 
 async function deleteProjectFirebase(id) {
   if (!state.firebase.connected || !state.firebase.db) {
-    throw new Error("Firebase is not connected.");
+    throw new Error("Not connected. Sign in to delete projects.");
   }
   await state.firebase.db.collection("projects").doc(id).delete();
 }
@@ -1068,7 +1068,7 @@ function initAuth() {
   const config = getActiveFirebaseConfig();
   if (!config) {
     setFirebaseStatus(
-      "Add your Firebase credentials to DEFAULT_FIREBASE_CONFIG in app.js to enable cloud sync."
+      "Cloud sync not configured. See Admin tab for setup instructions."
     );
     return;
   }
@@ -1159,7 +1159,7 @@ async function fetchOrCreateUserRole(user) {
   } catch (err) {
     console.error("fetchOrCreateUserRole failed:", err.code, err.message);
     setFirebaseStatus(
-      `Could not read/write user profile: ${err.message} — check Firestore security rules.`,
+      `Could not read/write user profile: ${err.message}`,
       "error"
     );
     return "standard"; // safe fallback — app continues working
@@ -1481,8 +1481,8 @@ function updateSyncStatusIndicator() {
   dom.syncStatusIcon.classList.toggle("green", healthy);
   dom.syncStatusIcon.classList.toggle("red",  !healthy);
   dom.syncStatusIcon.title = healthy
-    ? "Sync status: connected to cloud"
-    : "Sync status: local mode or cloud disconnected";
+    ? "Projects are saving to the cloud"
+    : "Projects are saving locally — sign in to sync to the cloud";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

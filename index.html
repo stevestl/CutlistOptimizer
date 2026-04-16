@@ -19,7 +19,7 @@
           </div>
         </div>
         <div class="status-icons">
-          <span id="sync-status-icon" class="icon-dot red" title="Sync status: not connected to Firebase" aria-label="Sync status"></span>
+          <span id="sync-status-icon" class="icon-dot red" title="Projects are saving locally — sign in to sync to the cloud" aria-label="Sync status"></span>
           <!-- User account menu -->
           <div class="user-menu-wrap" id="user-menu-wrap">
             <button id="user-menu-btn" type="button" class="user-avatar-btn unauthenticated"
@@ -350,7 +350,7 @@
             Firebase credentials are configured in <code>DEFAULT_FIREBASE_CONFIG</code> at the top of
             <code>app.js</code>. Users sign in via the avatar button (top-right corner).
           </p>
-          <p id="firebase-status" class="status">Firebase not connected.</p>
+          <p id="firebase-status" class="status">Not connected.</p>
         </section>
 
         <section class="card">
@@ -526,8 +526,8 @@ service cloud.firestore {
             </ul>
 
             <h3>Project Save + Load</h3>
-            <p>Sign in with an account (avatar button, upper-right) to save and load projects. Projects are stored in Firebase and accessible from any device using the same credentials.</p>
-            <p><em>Note:</em> Firestore documents have a 1 MB limit. Very large OBJ files may fail to save; reduce mesh complexity in your CAD export if you hit this limit.</p>
+            <p>Sign in with an account (avatar button, upper-right) to save and load projects. Projects are stored in the cloud and accessible from any device using the same credentials.</p>
+            <p><em>Note:</em> Cloud documents have a 1 MB size limit. Very large OBJ files may fail to save; reduce mesh complexity in your CAD export if you hit this limit.</p>
 
             <h3>User Accounts</h3>
             <p>Click the <strong>avatar button</strong> (upper-right corner) to sign in, create an account, reset your password, or sign out. All accounts created through the web app are <strong>Standard</strong> users. The <strong>Admin</strong> tab is only visible to Admin users — contact your administrator to be promoted.</p>
