@@ -363,6 +363,17 @@ function wireEvents() {
     if (e.key === "Enter")  resolveModal(_modalMode === "unsaved" ? "discard" : true);
     if (e.key === "Escape") resolveModal(_modalMode === "unsaved" ? "cancel"  : false);
   });
+
+  // Back-to-top button
+  const backToTopBtn = document.querySelector("#back-to-top");
+  if (backToTopBtn) {
+    window.addEventListener("scroll", () => {
+      backToTopBtn.classList.toggle("hidden", window.scrollY < 300);
+    }, { passive: true });
+    backToTopBtn.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

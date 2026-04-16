@@ -347,6 +347,28 @@ td input { min-width: 84px; }
   .layout-grid { grid-template-columns: 1fr; }
 }
 
+/* ── Back to top ────────────────────────────────────────────── */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 20px;
+  z-index: 900;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent, #6b4226);
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  opacity: 0.85;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.back-to-top:hover { opacity: 1; transform: translateY(-2px); }
+.back-to-top.hidden { display: none; }
+
 /* ── 3D Viewer ──────────────────────────────────────────────── */
 
 .viewer-wrap {
