@@ -2817,10 +2817,10 @@ function placeBlankOnBoard(board, blank, placement) {
     lengthMm: placement.lengthMm,
     rotated:  placement.rotated,
     grainLock: blank.grainLock,
-    // Panel strip fields — only present when part is wider than available stock
-    panelStripCount:  blank.panelStripCount,
-    panelStripIndex:  blank.panelStripIndex,
-    panelFullWidthMm: blank.panelFullWidthMm,
+    // Panel strip fields — null when part fits on a single board (Firestore rejects undefined)
+    panelStripCount:  blank.panelStripCount  ?? null,
+    panelStripIndex:  blank.panelStripIndex  ?? null,
+    panelFullWidthMm: blank.panelFullWidthMm ?? null,
   });
 }
 
