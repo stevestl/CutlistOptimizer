@@ -389,6 +389,34 @@ tr.part-excluded td { opacity: 0.38; }
 .help { margin-bottom: 10px; font-size: 0.9rem; }
 .muted { color: var(--ink-soft); font-size: 0.88rem; }
 
+/* Settings note inside a <details> block */
+.settings-note {
+  margin: 4px 0 10px;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+/* Instructions comparison table */
+.instructions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin: 8px 0 12px;
+}
+.instructions-table th,
+.instructions-table td {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+.instructions-table thead th {
+  background: #f4ede0;
+  font-weight: 700;
+}
+.instructions-table tbody tr:nth-child(even) td {
+  background: #faf7f2;
+}
+
 details summary { cursor: pointer; margin-top: 10px; }
 
 ul.compact { margin: 8px 0 0; padding-left: 18px; }

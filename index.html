@@ -164,54 +164,51 @@
           </div>
 
           <details open>
-            <summary>Milling allowances (metric)</summary>
+            <summary>Milling allowances — used by both Planning and Lumber Yard (metric)</summary>
+            <p class="help settings-note">These tolerances apply to every calculation — both the Planning estimate and the Lumber Yard result. Change them once here; they carry through everywhere.</p>
             <div class="grid catalog-grid">
-              <label>
+              <label title="Extra thickness added to each part to allow face-jointing and planing to net size.">
                 Thickness allowance (mm)
                 <input id="allow-thickness" type="number" min="0" step="0.1" value="3.2" />
               </label>
-              <label>
+              <label title="Extra width added to each part to allow edge-jointing and ripping to net size.">
                 Width allowance (mm)
                 <input id="allow-width" type="number" min="0" step="0.1" value="3.2" />
               </label>
-              <label>
+              <label title="Extra length added to each part for cross-cutting to net size.">
                 Length allowance (mm)
                 <input id="allow-length" type="number" min="0" step="0.1" value="25.4" />
               </label>
-              <label>
+              <label title="Length reserved at each end of a board for squaring cuts and end-check removal.">
                 Board end trim reserve (mm)
                 <input id="board-end-trim" type="number" min="0" step="0.1" value="50.8" />
               </label>
-              <label>
+              <label title="Extra width consumed by each rip cut (blade kerf + fence-repositioning margin).">
                 Rip margin per cut (mm)
                 <input id="rip-margin" type="number" min="0" step="0.1" value="1.6" />
-              </label>
-              <label title="Boards wider than this will be flagged for ripping into strips before planing, and the planner will prefer boards at or below this width. Set to 0 to disable.">
-                Max planer width (in)
-                <input id="max-planer-width" type="number" min="0" step="0.5" value="12" />
               </label>
             </div>
           </details>
 
           <details open>
-            <summary>Planner stock catalog range (imperial)</summary>
+            <summary>Planning stock catalog — used by Plan Stock only (imperial)</summary>
+            <p class="help settings-note">These values define the range of hypothetical board sizes the <strong>Plan Stock</strong> button considers when generating a budget estimate. They are <strong>not</strong> used by Lumber Yard Recalculate — enter your actual yard inventory on the Lumber Yard tab instead.</p>
             <div class="grid catalog-grid">
-              <label>
+              <label title="Narrowest board width the planner will generate.">
                 Width min (in)
                 <input id="planning-width-min" type="number" min="1" step="1" value="4" />
               </label>
-              <label>
+              <label title="Widest board width the planner will generate.">
                 Width max (in)
                 <input id="planning-width-max" type="number" min="1" step="1" value="12" />
               </label>
-              <label>
+              <label title="Shortest board length the planner will generate.">
                 Length min (ft)
                 <input id="planning-length-min" type="number" min="1" step="1" value="6" />
               </label>
-              <label>
+              <label title="Longest board length the planner will generate. Also used as the transport limit — boards over this length in the Lumber Yard result will receive a yard pre-cut suggestion.">
                 Length max (ft)
-                <input id="planning-length-max" type="number" min="1" step="1" value="10"
-                  title="Maximum board length the planner considers. Also used as the transport limit — boards over this length in the Lumber Yard tab will receive a yard recut suggestion." />
+                <input id="planning-length-max" type="number" min="1" step="1" value="10" />
               </label>
             </div>
           </details>
@@ -273,6 +270,17 @@
 
       <!-- ── LUMBER YARD TAB ────────────────────────────────────── -->
       <div class="tab-content hidden" data-tab="lumber-yard">
+
+        <section class="card">
+          <h2>Lumber Yard Settings</h2>
+          <p class="help">These settings are specific to the Lumber Yard workflow — what you can actually buy and process. The <strong>milling allowances, saw kerf, and price per board foot</strong> configured on the Planning tab also apply to all Lumber Yard calculations.</p>
+          <div class="grid catalog-grid">
+            <label title="Your planer's maximum cutting width. Boards wider than this are flagged in the Workshop guide with rip-to-strips instructions. Board selection is also biased toward widths at or below this limit so you get boards you can plane without extra steps. Set to 0 to disable.">
+              Max planer width (in)
+              <input id="max-planer-width" type="number" min="0" step="0.5" value="12" />
+            </label>
+          </div>
+        </section>
 
         <section class="card">
           <h2>Lumber Yard Inventory</h2>
@@ -474,9 +482,26 @@ service cloud.firestore {
             <p>Stock thickness is expressed in <strong>quarters</strong> (4/4 ≈ 25.4 mm, 5/4 ≈ 31.75 mm, etc.). If a part's rough thickness exceeds one board, multiple lamination layers are calculated automatically. You can override per-part or globally via the Override column and Apply Override button.</p>
 
             <h3>Planning vs Lumber Yard</h3>
+            <p>The two workflows use different board sources but share the same milling allowances, kerf, and price settings configured on the Planning tab.</p>
+            <table class="instructions-table">
+              <thead><tr><th></th><th>Plan Stock (Planning tab)</th><th>Lumber Yard Recalculate</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Board source</strong></td><td>Auto-generated catalog within your configured width/length range</td><td>Specific boards you enter in the Inventory table</td></tr>
+                <tr><td><strong>Purpose</strong></td><td>Budget estimate before visiting the yard</td><td>Exact cut plan using boards you've found or bought</td></tr>
+                <tr><td><strong>Catalog range</strong></td><td>Controlled by width/length min–max on Planning tab</td><td>Not used — ignored entirely</td></tr>
+                <tr><td><strong>Milling allowances</strong></td><td colspan="2" style="text-align:center">Shared — configured once on the Planning tab, apply to both</td></tr>
+                <tr><td><strong>Max planer width</strong></td><td>Biases board selection toward narrower stock</td><td>Same bias + Workshop rip-to-strips warnings</td></tr>
+                <tr><td><strong>Quantity limits</strong></td><td>Unlimited (catalog is hypothetical)</td><td>Respects quantities unless <em>Infinite inventory</em> is checked</td></tr>
+              </tbody>
+            </table>
+            <h4 style="margin:14px 0 4px">Lumber Yard Settings</h4>
             <ul>
-              <li><strong>Plan Stock</strong> (Planning tab): optimizes against any board width/length within the catalog range you configure (e.g., 4–12″ wide, 6–10 ft long). Good for budgeting.</li>
-              <li><strong>Lumber Yard Recalculate</strong>: re-optimizes against the specific boards in your inventory table. Enable <em>Assume infinite inventory</em> to treat quantities as unlimited. With no inventory rows and infinite mode enabled, falls back to the planning catalog range.</li>
+              <li><strong>Max planer width (in):</strong> Your planer's maximum cutting width. Boards wider than this are flagged in the Workshop guide with instructions to rip them into narrower strips before planing. Both Planning and Lumber Yard prefer boards at or below this width when possible — a wider board is only chosen when no narrower board can fit the blank. Set to <code>0</code> to disable.</li>
+            </ul>
+            <h4 style="margin:14px 0 4px">Planning Stock Catalog Settings (Plan Stock only)</h4>
+            <ul>
+              <li><strong>Width min / max (in):</strong> The range of board widths the planner considers when generating the hypothetical catalog. Has no effect on Lumber Yard Recalculate.</li>
+              <li><strong>Length min / max (ft):</strong> The range of board lengths. Length max also acts as a transport limit — boards exceeding it in the Lumber Yard result are flagged for a yard pre-cut.</li>
             </ul>
 
             <h3>Grain Direction</h3>

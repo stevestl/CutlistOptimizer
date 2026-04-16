@@ -30,6 +30,30 @@ Part orientation is fixed as requested:
 - Use `1` for normal exports.
 - Use another value only if your source export is consistently scaled wrong.
 
+## Planning vs Lumber Yard
+
+These two workflows share milling allowances, kerf, and pricing but use different board sources:
+
+| | Plan Stock | Lumber Yard Recalculate |
+|---|---|---|
+| **Board source** | Auto-generated catalog within your width/length range | Boards you enter in the Inventory table |
+| **Purpose** | Budget estimate before visiting the yard | Exact cut plan for boards you've found |
+| **Catalog range** | Controlled by width/length min–max on Planning tab | Not used |
+| **Milling allowances** | Shared — configured on Planning tab | Shared — same values |
+| **Max planer width** | Biases toward narrower stock | Same bias + Workshop warnings |
+| **Quantities** | Unlimited (hypothetical) | Respects inventory quantities |
+
+**Settings that apply to Planning only** (Planning Stock Catalog section):
+- Width min/max and Length min/max — define the hypothetical board range for Plan Stock.
+
+**Settings on the Lumber Yard tab:**
+- **Max planer width (in)** — your planer's physical capacity. Boards wider than this are flagged in the Workshop guide to be ripped into strips before planing. Both Planning and Lumber Yard prefer boards within this width. Set to `0` to disable.
+
+**Shared settings (configured once on the Planning tab, apply to both):**
+- Milling allowances (thickness, width, length, board-end trim, rip margin)
+- Saw kerf
+- Price per board foot
+
 ## Features
 
 1. **Part extraction + planning**
