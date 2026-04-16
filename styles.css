@@ -396,6 +396,17 @@ tr.part-excluded td { opacity: 0.38; }
   color: var(--ink-soft);
 }
 
+.planning-estimate-note {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #78350f;
+  line-height: 1.5;
+}
+
 /* Instructions comparison table */
 .instructions-table {
   width: 100%;
