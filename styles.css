@@ -373,7 +373,8 @@ td input { min-width: 84px; }
 .board-card h4 { margin: 0 0 8px; font-size: 0.92rem; }
 
 .board-svg {
-  width: 100%;
+  display: block;
+  max-width: 100%;
   height: auto;
   border-radius: 6px;
   border: 1px solid #ccbca8;

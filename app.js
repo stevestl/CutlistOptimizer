@@ -3489,19 +3489,26 @@ function buildBoardSvg(board, svgHeight) {
     "#6d597a","#2a9d8f",
   ];
 
+  // Draw in pixel space so font-size is in true pixels and never distorted.
+  const svgH_px = Math.max(60, svgHeight);
+  const ds      = svgH_px / board.widthMm;           // pixels per mm
+  const svgW_px = Math.max(60, board.lengthMm * ds);
+
   const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
   svg.setAttribute("class","board-svg");
-  svg.setAttribute("viewBox",`0 0 ${board.lengthMm} ${board.widthMm}`);
-  svg.setAttribute("preserveAspectRatio","none");
-  svg.style.height = `${svgHeight}px`;
+  svg.setAttribute("viewBox",`0 0 ${svgW_px} ${svgH_px}`);
+  // No preserveAspectRatio="none" — pixel viewBox matches display pixels 1:1.
+  svg.style.width    = `${svgW_px}px`;
+  svg.style.maxWidth = "100%";
+  svg.style.height   = "auto";
 
   const bg = document.createElementNS("http://www.w3.org/2000/svg","rect");
   bg.setAttribute("x","0"); bg.setAttribute("y","0");
-  bg.setAttribute("width",String(board.lengthMm));
-  bg.setAttribute("height",String(board.widthMm));
+  bg.setAttribute("width",String(svgW_px));
+  bg.setAttribute("height",String(svgH_px));
   bg.setAttribute("fill","#f4e6ce");
   bg.setAttribute("stroke","#a48a6a");
-  bg.setAttribute("stroke-width",String(Math.max(0.8, board.widthMm * 0.008)));
+  bg.setAttribute("stroke-width",String(Math.max(0.8, svgH_px * 0.008)));
   svg.append(bg);
 
   if (board.trimTotalMm > EPSILON) {
@@ -3510,40 +3517,43 @@ function buildBoardSvg(board, svgHeight) {
       [board.lengthMm - board.trimOffsetMm, board.trimOffsetMm],
     ]) {
       const trim = document.createElementNS("http://www.w3.org/2000/svg","rect");
-      trim.setAttribute("x",String(x)); trim.setAttribute("y","0");
-      trim.setAttribute("width",String(w)); trim.setAttribute("height",String(board.widthMm));
+      trim.setAttribute("x",String(x * ds)); trim.setAttribute("y","0");
+      trim.setAttribute("width",String(w * ds)); trim.setAttribute("height",String(svgH_px));
       trim.setAttribute("fill","#d7c4a8"); trim.setAttribute("fill-opacity","0.55");
       svg.append(trim);
     }
   }
 
   board.placements.forEach((placement, idx) => {
-    const svgX = placement.y;
-    const svgY = placement.x;
-    const svgW = placement.lengthMm;
-    const svgH = placement.widthMm;
+    // Coordinate swap + scale to pixels
+    const pX = placement.y        * ds;
+    const pY = placement.x        * ds;
+    const pW = placement.lengthMm * ds;
+    const pH = placement.widthMm  * ds;
 
     const rect = document.createElementNS("http://www.w3.org/2000/svg","rect");
-    rect.setAttribute("x",String(svgX)); rect.setAttribute("y",String(svgY));
-    rect.setAttribute("width",String(svgW)); rect.setAttribute("height",String(svgH));
+    rect.setAttribute("x",String(pX)); rect.setAttribute("y",String(pY));
+    rect.setAttribute("width",String(pW)); rect.setAttribute("height",String(pH));
     rect.setAttribute("fill", colors[idx % colors.length]);
     rect.setAttribute("fill-opacity","0.86");
     rect.setAttribute("stroke","#ffffff");
-    rect.setAttribute("stroke-width",String(Math.max(0.6, board.widthMm * 0.006)));
+    rect.setAttribute("stroke-width",String(Math.max(0.6, svgH_px * 0.006)));
     svg.append(rect);
 
-    const labelPad = svgW * 0.03;
+    // Font-size in pixels — legible at any board aspect ratio.
+    const labelPad = pW * 0.03;
     const fontSize = Math.min(
-      Math.max(4, svgH * 0.45),
-      Math.max(4, svgW * 0.06),
-      Math.max(4, board.widthMm * 0.10)
+      Math.max(4, pH * 0.42),
+      Math.max(4, pW * 0.08),
+      Math.max(4, svgH_px * 0.14)
     );
     const label = document.createElementNS("http://www.w3.org/2000/svg","text");
-    label.setAttribute("x",String(svgX + labelPad));
-    label.setAttribute("y",String(svgY + svgH / 2));
+    label.setAttribute("x",String(pX + labelPad));
+    label.setAttribute("y",String(pY + pH / 2));
     label.setAttribute("text-anchor","start");
     label.setAttribute("dominant-baseline","central");
     label.setAttribute("font-size",String(fontSize));
+    label.setAttribute("font-family","system-ui, sans-serif");
     label.setAttribute("fill","#fff");
     label.textContent = shortenPartName(placement.partName);
     svg.append(label);
@@ -4363,22 +4373,28 @@ function renderLayouts(target, boards) {
     subtitle.className = "muted";
     subtitle.textContent = `Metric: ${formatMm(board.widthMm, 1)} × ${formatMm(board.lengthMm, 1)} (${board.source})`;
     card.append(subtitle);
-    const svgHeight = Math.max(60, board.widthMm * drawScale);
+    // Draw in pixel space so text is never distorted by non-uniform scaling.
+    // ds = pixels per mm for this board set; svgW/svgH are the pixel canvas dimensions.
+    const svgH_px = Math.max(60, board.widthMm  * drawScale);
+    const svgW_px = Math.max(60, board.lengthMm * drawScale);
+    const ds      = svgH_px / board.widthMm; // pixels per mm (uniform)
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "board-svg");
-    svg.setAttribute("viewBox", `0 0 ${board.lengthMm} ${board.widthMm}`);
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.style.height = `${svgHeight}px`;
+    svg.setAttribute("viewBox", `0 0 ${svgW_px} ${svgH_px}`);
+    // No preserveAspectRatio="none" — pixel viewBox renders 1:1, text is undistorted.
+    svg.style.width    = `${svgW_px}px`;
+    svg.style.maxWidth = "100%";
+    svg.style.height   = "auto";
 
     // Board background
     const boardRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     boardRect.setAttribute("x", "0"); boardRect.setAttribute("y", "0");
-    boardRect.setAttribute("width",  String(board.lengthMm));
-    boardRect.setAttribute("height", String(board.widthMm));
+    boardRect.setAttribute("width",  String(svgW_px));
+    boardRect.setAttribute("height", String(svgH_px));
     boardRect.setAttribute("fill", "#f4e6ce");
     boardRect.setAttribute("stroke", "#a48a6a");
-    boardRect.setAttribute("stroke-width", String(Math.max(0.8, board.widthMm * 0.008)));
+    boardRect.setAttribute("stroke-width", String(Math.max(0.8, svgH_px * 0.008)));
     svg.append(boardRect);
 
     // End-trim zones at left and right ends of the board
@@ -4388,8 +4404,8 @@ function renderLayouts(target, boards) {
         [board.lengthMm - board.trimOffsetMm, board.trimOffsetMm],
       ]) {
         const trim = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        trim.setAttribute("x", String(x)); trim.setAttribute("y", "0");
-        trim.setAttribute("width", String(w)); trim.setAttribute("height", String(board.widthMm));
+        trim.setAttribute("x", String(x * ds)); trim.setAttribute("y", "0");
+        trim.setAttribute("width", String(w * ds)); trim.setAttribute("height", String(svgH_px));
         trim.setAttribute("fill", "#d7c4a8"); trim.setAttribute("fill-opacity", "0.55");
         svg.append(trim);
       }
@@ -4397,37 +4413,39 @@ function renderLayouts(target, boards) {
 
     board.placements.forEach((placement, placementIndex) => {
       // Coordinate swap: board x-axis (width) → SVG y-axis; board y-axis (length) → SVG x-axis
-      const svgX = placement.y;
-      const svgY = placement.x;
-      const svgW = placement.lengthMm;
-      const svgH = placement.widthMm;
+      // All values scaled to pixels via ds.
+      const pX = placement.y        * ds;
+      const pY = placement.x        * ds;
+      const pW = placement.lengthMm * ds;
+      const pH = placement.widthMm  * ds;
 
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x",      String(svgX));
-      rect.setAttribute("y",      String(svgY));
-      rect.setAttribute("width",  String(svgW));
-      rect.setAttribute("height", String(svgH));
+      rect.setAttribute("x",      String(pX));
+      rect.setAttribute("y",      String(pY));
+      rect.setAttribute("width",  String(pW));
+      rect.setAttribute("height", String(pH));
       rect.setAttribute("fill",         colors[(placementIndex + boardIndex) % colors.length]);
       rect.setAttribute("fill-opacity", "0.86");
       rect.setAttribute("stroke",       "#ffffff");
-      rect.setAttribute("stroke-width", String(Math.max(0.6, board.widthMm * 0.006)));
+      rect.setAttribute("stroke-width", String(Math.max(0.6, svgH_px * 0.006)));
       svg.append(rect);
 
-      // Label: left-aligned, reads left-to-right, no rotation
-      const labelPad = svgW * 0.03;
+      // Label: font-size is now in true pixels — legible at any board aspect ratio.
+      const labelPad = pW * 0.03;
       const fontSize = Math.min(
-        Math.max(4, svgH * 0.45),        // fit within part height
-        Math.max(4, svgW * 0.06),        // don't dominate part width
-        Math.max(4, board.widthMm * 0.10) // limit by board scale
+        Math.max(4, pH * 0.42),         // fit within part height
+        Math.max(4, pW * 0.08),         // don't dominate part width
+        Math.max(4, svgH_px * 0.14)     // cap relative to board height
       );
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x",                String(svgX + labelPad));
-      label.setAttribute("y",                String(svgY + svgH / 2));
-      label.setAttribute("text-anchor",      "start");
-      label.setAttribute("dominant-baseline","central");
-      label.setAttribute("font-size",        String(fontSize));
-      label.setAttribute("fill",             "#fff");
+      label.setAttribute("x",                 String(pX + labelPad));
+      label.setAttribute("y",                 String(pY + pH / 2));
+      label.setAttribute("text-anchor",       "start");
+      label.setAttribute("dominant-baseline", "central");
+      label.setAttribute("font-size",         String(fontSize));
+      label.setAttribute("font-family",       "system-ui, sans-serif");
+      label.setAttribute("fill",              "#fff");
       label.textContent = shortenPartName(placement.partName);
       svg.append(label);
     });
