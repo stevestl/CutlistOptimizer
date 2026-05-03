@@ -3718,6 +3718,10 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
+  const stockMm          = quarterToMm(board.thicknessQuarter);
+  const planeThickMm     = planeThickForBoard(board, partsMap);
+  const maxPlanerWidthMm = maxPlanerWidthIn * INCH_TO_MM;
+
   // --- Check for required sections immediately at the start of planning ---
   const sections = buildSections(board);
   const multiSectionBoard = sections.length > 1;
@@ -3766,18 +3770,17 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
         }
 
         segmentLengthDisplay = `${formatMm(usableLengthBeforeTrim, 0)} long`;
-
+        const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
 
         sectionCutSteps.push({
             tool: "Miter saw", toolClass: "tool-mitersaw",
-            text: `Cross-cut section ${i + 1} at ≈${formatMm(Math.min(board.lengthMm - trimEach, usableLengthBeforeTrim), 0)} from reference end — yields a ${sectionLengthDisplay} piece containing: ${names}. (Note: This cut leaves adequate room for final trimming after planing/jointing.)`
+            text: `Cross-cut section ${i + 1} at ≈${formatMm(Math.min(board.lengthMm - trimEach, usableLengthBeforeTrim), 0)} from reference end — yields a ${segmentLengthDisplay} piece containing: ${names}. (Note: This cut leaves adequate room for final trimming after planing/jointing.)`
         });
     }
 
     // Inject these critical steps right after the initial inspection.
     steps.push(...sectionCutSteps);
     firstStepCut = true;
-
 
   } else {
       // If no sections are found, proceed with standard full-board face jointing
@@ -3802,6 +3805,12 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const lamThickNote = board.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1)
     ? ` (per-layer target — blanks will be glued up to full thickness after cutting)` : "";
   const boardOverWidth = maxPlanerWidthMm > 0 && board.widthMm > maxPlanerWidthMm + EPSILON;
+  const multiPassNote  = boardOverWidth
+    ? ` ⚠ Board is ${formatInches(board.widthIn)} wide — wider than your ${formatInches(maxPlanerWidthIn)}" planer capacity. ` +
+      `Rip the board into strips ≤ ${formatInches(maxPlanerWidthIn)}" wide before planing, ` +
+      `then edge-glue them back to width after planing if needed. ` +
+      `Alternatively, use a wide drum sander or hand planes.`
+    : "";
 
   // Planing step now applies to sections or single full-length boards
   spacer("Planer", "tool-planer",
