@@ -3285,15 +3285,33 @@ function renderWorkshopTab() {
   // Prefer inventory result (real boards); fall back to planning result.
   const result = state.inventoryResult || state.planningResult;
 
-  if (!result || !result.boards.length) {
+  if (!result) {
     dom.workshopContent.innerHTML = "";
     if (dom.workshopSourceNote) {
-      dom.workshopSourceNote.textContent =
-        "Run Plan Stock or Recalculate to generate the workshop guide.";
+      dom.workshopSourceNote.textContent = "Run Plan Stock or Recalculate first to generate the workshop guide.";
+    }
+    return;
+  }
+  
+  // Check if we have any parts assigned, as this is necessary for the table/schedule.
+  if (!state.parts || state.parts.length === 0) {
+      dom.workshopContent.innerHTML = "";
+      if (dom.workshopSourceNote) {
+        dom.workshopSourceNote.textContent = "The current project has no parts detected or assigned. Please analyze a model.";
+      }
+      return;
+  }
+
+  const hasBoards = result.boards && result.boards.length > 0;
+  if (!hasBoards) {
+    dom.workshopContent.innerHTML = "";
+    if (dom.workshopSourceNote) {
+      dom.workshopSourceNote.textContent = "Calculation completed, but no usable board layouts were generated.";
     }
     return;
   }
 
+  // If we reach here, data exists, so proceed with rendering.
   const sourceLabel = state.inventoryResult ? "Lumber Yard Recalculate" : "Plan Stock";
   if (dom.workshopSourceNote) {
     dom.workshopSourceNote.innerHTML =
@@ -3307,12 +3325,19 @@ function renderWorkshopTab() {
 
   // Global draw scale (same logic as renderLayouts — widest board = 180 px)
   const maxWidthMm = Math.max(...result.boards.map((b) => b.widthMm), 1);
-  const drawScale  = (180 / maxWidthMm) * state.layoutScale;
+  let drawScale = (180 / maxWidthMm) * state.layoutScale;
+  
+  // Safety check: If the scale calculation results in an impossible dimension, default to a safe ratio.
+  if (drawScale < 1 || isNaN(drawScale)) {
+    console.warn("Calculated draw scale was invalid or zero. Resetting to default.");
+    drawScale = 0.8; 
+  }
 
   dom.workshopContent.innerHTML = "";
 
   result.boards.forEach((board) => {
     const card = document.createElement("div");
+
     card.className = "workshop-board-card";
 
     // ── Header ──────────────────────────────────────────────────
@@ -3501,22 +3526,22 @@ function buildBoardSvg(board, svgHeight) {
   ];
 
   // Draw in pixel space so font-size is in true pixels and never distorted.
-  const svgH_px = Math.max(60, svgHeight);
+  const svgH_px = Math.max(60, board.widthMm * drawScale);
+  const svgW_px = Math.max(60, board.lengthMm * drawScale);
   const ds      = svgH_px / board.widthMm;           // pixels per mm
-  const svgW_px = Math.max(60, board.lengthMm * ds);
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
   svg.setAttribute("class","board-svg");
   svg.setAttribute("viewBox",`0 0 ${svgW_px} ${svgH_px}`);
   // No preserveAspectRatio="none" — pixel viewBox matches display pixels 1:1.
-  svg.style.width    = `${svgW_px}px`;
+  svg.style.width    = `${Math.max(1, svgW_px)}px`; // Ensure width is at least 1px
   svg.style.maxWidth = "100%";
   svg.style.height   = "auto";
 
   const bg = document.createElementNS("http://www.w3.org/2000/svg","rect");
   bg.setAttribute("x","0"); bg.setAttribute("y","0");
-  bg.setAttribute("width",String(svgW_px));
-  bg.setAttribute("height",String(svgH_px));
+  bg.setAttribute("width",String(Math.max(1, svgW_px)));
+  bg.setAttribute("height",String(Math.max(1, svgH_px)));
   bg.setAttribute("fill","#f4e6ce");
   bg.setAttribute("stroke","#a48a6a");
   bg.setAttribute("stroke-width",String(Math.max(0.8, svgH_px * 0.008)));
@@ -4456,16 +4481,16 @@ function renderLayouts(target, boards) {
     svg.setAttribute("class", "board-svg");
     svg.setAttribute("viewBox", `0 0 ${svgW_px} ${svgH_px}`);
     // No preserveAspectRatio="none" — pixel viewBox renders 1:1, text is undistorted.
-    svg.style.width    = `${svgW_px}px`;
+    svg.style.width    = `${Math.max(1, svgW_px)}px`; // Ensure width is at least 1px
     svg.style.maxWidth = "100%";
     svg.style.height   = "auto";
 
     // Board background
     const boardRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     boardRect.setAttribute("x", "0"); boardRect.setAttribute("y", "0");
-    boardRect.setAttribute("width",  String(svgW_px));
-    boardRect.setAttribute("height", String(svgH_px));
-    boardRect.setAttribute("fill", "#f4e6ce");
+    boardRect.setAttribute("width",String(Math.max(1, svgW_px))); // Ensure width is at least 1px
+    boardRect.setAttribute("height",String(Math.max(1, svgH_px))); // Ensure height is at least 1px
+    boardRect.setAttribute("fill","#f4e6ce");
     boardRect.setAttribute("stroke", "#a48a6a");
     boardRect.setAttribute("stroke-width", String(Math.max(0.8, svgH_px * 0.008)));
     svg.append(boardRect);
