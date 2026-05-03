@@ -3821,8 +3821,6 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
     });
   } else {
     // Original single-piece logic (if no sections were found)
-      const sections = buildSections(board);
-
       sections.forEach((sec, si) => {
         // Cross-cut position from trimmed reference end
         const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
