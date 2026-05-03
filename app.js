@@ -3356,7 +3356,7 @@ function renderWorkshopTab() {
 
     // ── Board diagram (same SVG as layout view) ─────────────────
     const svgHeight = Math.max(50, board.widthMm * drawScale);
-    const svg = buildBoardSvg(board, svgHeight);
+    const svg = buildBoardSvg(board, svgHeight, drawScale);
     card.append(svg);
 
     // ── Parts table ─────────────────────────────────────────────
@@ -3518,7 +3518,7 @@ function printWorkshopPDF() {
 }
 
 // Build the same SVG used in renderLayouts but returns the element (no scale row).
-function buildBoardSvg(board, svgHeight) {
+function buildBoardSvg(board, svgHeight, drawScale) {
   const colors = [
     "#bc6c25","#dda15e","#606c38","#283618",
     "#7f5539","#9c6644","#386641","#1d3557",
