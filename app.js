@@ -3828,10 +3828,10 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
     sections.forEach((sec, si) => {
       const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
       const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
-      const names = sections.map((p) => shortenPartName(p.partName)).join(", ");
+      const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
 
       // Within the sections, rip each blank in order of x (width position)
-      const byX = [...sections[si].placements].sort((a, b) => a.x - b.x);
+      const byX = [...sec.placements].sort((a, b) => a.x - b.x);
       byX.forEach((p, pi) => {
         const part = partsMap.get(p.partId);
         // Thickness of THIS blank = per-layer target (for laminated parts) or full rough thickness
@@ -3857,7 +3857,7 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
         // Cross-cut position from trimmed reference end
         const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
         const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
-        const names = sections.map((p) => shortenPartName(p.partName)).join(", ");
+        const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
 
         spacer("Miter saw", "tool-mitersaw",
           `Cross-cut section ${si + 1} at ${formatMm(crossCutPos, 0)} from reference end — yields a ${formatMm(sectionLen, 0)}-long piece containing: ${names}.`);
