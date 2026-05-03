@@ -3790,8 +3790,6 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   }
 
   // ── Blank cuts ───────────────────────────────────────────────
-  const sections = buildSections(board);
-
   if (multiSectionBoard) {
     sections.forEach((sec, si) => {
       const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
