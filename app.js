@@ -3693,46 +3693,83 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
-  const sections         = buildSections(board);
+  // --- Check for required sections immediately at the start of planning ---
+  const sections = buildSections(board);
   const multiSectionBoard = sections.length > 1;
-  const trimEach         = board.trimOffsetMm ?? 25.4;
-  const planeThickMm     = planeThickForBoard(board, partsMap);
-  const maxPlanerWidthMm = maxPlanerWidthIn * INCH_TO_MM;
+  const trimEach = board.trimOffsetMm ?? 25.4;
+  let firstStepCut = false;
 
-  // ── Initial milling ──────────────────────────────────────────────────
+  // ── Initial milling (Applicable to all boards) ────────────────────────
   spacer("Inspect", "tool-inspect",
     "Check for cupping, bowing, twist, and surface defects. " +
     "Mark any knots or checks to route around when laying out blanks.");
 
   if (multiSectionBoard) {
-    spacer("Miter saw", "tool-mitersaw",
-      `⚠️ Cross-cut this board into ${sections.length} sections BEFORE milling — shorter pieces are easier to joint and plane.`);
-    sections.forEach((sec, i) => {
-      const crossCutPos = roundTo(sec.endY - trimEach, 0.5);
-      const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
-      const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
-      spacer("Miter saw", "tool-mitersaw",
-        `Cross-cut section ${i + 1} at ${formatMm(crossCutPos, 0)} from reference end — yields a ${formatMm(sectionLen, 0)}-long piece containing: ${names}.`);
+    // --- PRIORITY CROSS-CUTTING PHASE ⚡️ ---
+    steps.push({ 
+      tool: "Miter saw", toolClass: "tool-mitersaw", 
+      text: `⚠️ CRITICAL FIRST STEP for long boards: The board must be cross-cut into sections first. These initial cuts are calculated to leave sufficient material (allowance ≈ ${formatMm(trimEach * 1.2, 0)}) after planing/jointing and final trimming.` 
     });
-    spacer("Jointer", "tool-jointer",
-      "Face joint one face flat on each section. This becomes your reference face (face against the planer bed).");
+
+    // Add detailed guidance for the calculated cuts immediately after the initial jointing pass
+    const sectionCutSteps = [];
+    for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
+        
+        // Calculate target length: Total Length - Trim Allowance. We must leave enough material for final trim.
+        const usableLengthBeforeTrim = Math.max(1, sec.endY - sec.startY);
+        let cutPositionMm;
+        let segmentLengthDisplay;
+
+        if (usableLengthBeforeTrim < trimEach * 2) {
+             // If the section is too short to accommodate a full trimming allowance on both ends, we don't pre-cut it as a 'section'.
+            continue; 
+        }
+        
+        // The cut position should be calculated based on the required segment length + trim allowances.
+        // We calculate how far in from the start (Y=0) the cut must happen to leave enough material for trimming at both ends.
+        const effectiveTrimLoss = trimEach * 2;
+        let targetSegmentLength = Math.max(1, usableLengthBeforeTrim - effectiveTrimLoss);
+
+        // The cuts are placed sequentially from the reference end (Y=0)
+        if (i === sections.length - 1) {
+            // Last section runs to the end of the board length
+            cutPositionMm = roundTo(usableLengthBeforeTrim - Math.max(0, trimEach), 0.5); // Leave one final trim allowance at the far end
+        } else {
+            // Intermediate sections require leaving space for a final trim cut between segments
+            cutPositionMm = roundTo(sec.endY + (i === 0 ? 0 : Math.max(1, trimEach*2)), 0.5); // Placeholder logic - we just list the segment details here.
+        }
+
+        segmentLengthDisplay = `${formatMm(usableLengthBeforeTrim, 0)} long`;
+
+
+        sectionCutSteps.push({
+            tool: "Miter saw", toolClass: "tool-mitersaw",
+            text: `Cross-cut section ${i + 1} at ≈${formatMm(Math.min(board.lengthMm - trimEach, usableLengthBeforeTrim), 0)} from reference end — yields a ${sectionLengthDisplay} piece containing: ${names}. (Note: This cut leaves adequate room for final trimming after planing/jointing.)`
+        });
+    }
+
+    // Inject these critical steps right after the initial inspection.
+    steps.push(...sectionCutSteps);
+    firstStepCut = true;
+
+
   } else {
-    spacer("Jointer", "tool-jointer",
-      "Face joint one face flat. This becomes your reference face (face against the planer bed).");
+      // If no sections are found, proceed with standard full-board face jointing
+      spacer("Jointer", "tool-jointer",
+        "Face joint one face flat. This becomes your reference face (face against the planer bed).");
   }
 
-
-  // ── Subsequent milling ───────────────────────────────────────────────
+  // --- Subsequent Milling Steps ──────────────────────────────────────
 
   // Re-saw suggestion: if stock is more than ~12 mm thicker than the per-layer target
-  const resawExcess = quarterToMm(board.thicknessQuarter) - planeThickMm;
-  if (resawExcess > 12 && !multiSectionBoard) {
-    const resawTarget = roundTo(planeThickMm + 3, 0.5);
+  const maxRoughThick    = Math.max(Math.max(...board.placements.map((p) => partsMap.get(p.partId)?.roughThicknessMm || 0)), quarterToMm(board.thicknessQuarter));
+  const resawExcess = quarterToMm(board.thicknessQuarter) - maxRoughThick;
+
+  if (resawExcess > 12 && !multiSectionBoard) { // Only suggest re-saw if not already sectioned
     spacer("Band saw", "tool-bandsaw",
-      `Re-saw to ≈${formatMm(resawTarget, 0)} — stock is ${formatMm(quarterToMm(board.thicknessQuarter), 0)} ` +
-      `but blanks only need ${formatMm(planeThickMm, 0)} before glue-up. ` +
-      `Re-sawing saves ${formatMm(resawExcess - 3, 0)} of planer travel. ` +
-      `Save the off-cut for thinner parts.`);
+      `Re-saw to ≈${formatMm(maxRoughThick + 3, 0.5)} — stock is ${formatMm(quarterToMm(board.thicknessQuarter), 0)} ` +
+      `but blanks only need ${formatMm(Math.max(1, maxRoughThick), 0)} before glue-up...`);
     spacer("Jointer", "tool-jointer",
       "Light face-joint pass on the re-sawn face to remove saw marks before planing.");
   }
@@ -3740,44 +3777,83 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const lamThickNote = board.placements.some((p) => (partsMap.get(p.partId)?.layers ?? 1) > 1)
     ? ` (per-layer target — blanks will be glued up to full thickness after cutting)` : "";
   const boardOverWidth = maxPlanerWidthMm > 0 && board.widthMm > maxPlanerWidthMm + EPSILON;
-  const multiPassNote  = boardOverWidth
-    ? ` ⚠ Board is ${formatInches(board.widthIn)} wide — wider than your ${formatInches(maxPlanerWidthIn)}" planer capacity. ` +
-      `Rip the board into strips ≤ ${formatInches(maxPlanerWidthIn)}" wide before planing, ` +
-      `then edge-glue them back to width after planing if needed. ` +
-      `Alternatively, use a wide drum sander or hand planes.`
-    : "";
+
+  // Planing step now applies to sections or single full-length boards
   spacer("Planer", "tool-planer",
     `Plane to ${formatMm(planeThickMm, 1)}${lamThickNote}. ` +
     `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.${multiPassNote}`);
 
-  spacer("Jointer", "tool-jointer",
-    "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
+  // Only joint long edge if we didn't just sectioned the board first.
+  if (!firstStepCut) {
+      spacer("Jointer", "tool-jointer",
+        "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
+  }
 
   // ── Blank cuts ───────────────────────────────────────────────
-  sections.forEach((sec) => {
-    const sectionLen = roundTo(sec.endY - sec.startY, 0.5);
+  const sections = buildSections(board);
 
-    // Within the section, rip each blank in order of x (width position)
-    const byX = [...sec.placements].sort((a, b) => a.x - b.x);
-    byX.forEach((p, pi) => {
-      const part = partsMap.get(p.partId);
-      // Thickness of THIS blank = per-layer target (for laminated parts) or full rough thickness
-      const blankThickMm = part && part.layers > 1
-        ? roundTo(part.roughThicknessMm / part.layers, 1)
-        : (part ? part.roughThicknessMm : planeThickMm);
-      const lamNote = (part && part.layers > 1)
-        ? ` · layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers} (glue-up after all blanks are cut)`
-        : "";
-      const crossCutNote = sectionLen > p.lengthMm + 1
-        ? ` (cross-cut to ${formatMm(p.lengthMm, 0)} first)`
-        : "";
+  if (multiSectionBoard) {
+    sections.forEach((sec, si) => {
+      const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
+      const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
+      const names = sections.map((p) => shortenPartName(p.partName)).join(", ");
 
-      spacer("Table saw", "tool-tablesaw",
-        `Rip to ${formatMm(p.widthMm, 0)} wide${crossCutNote} → ` +
-        `blank: ${formatMm(p.lengthMm, 0)} L × ${formatMm(p.widthMm, 0)} W × ` +
-        `${formatMm(blankThickMm, 0)} T — "${p.partName}"${lamNote}.`);
+      // Within the sections, rip each blank in order of x (width position)
+      const byX = [...sections[si].placements].sort((a, b) => a.x - b.x);
+      byX.forEach((p, pi) => {
+        const part = partsMap.get(p.partId);
+        // Thickness of THIS blank = per-layer target (for laminated parts) or full rough thickness
+        const blankThickMm = part && part.layers > 1
+          ? roundTo(part.roughThicknessMm / part.layers, 1)
+          : (part ? part.roughThicknessMm : planeThickMm);
+        const lamNote = (part && part.layers > 1)
+          ? ` · layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers} (glue-up after all blanks are cut)`
+          : "";
+        const crossCutNote = sectionLen > p.lengthMm + 1
+          ? ` (cross-cut to ${formatMm(p.lengthMm, 0)} first)`
+          : "";
+
+        spacer("Table saw", "tool-tablesaw",
+          `Rip to ${formatMm(p.widthMm, 0)} wide${crossCutNote} → ` +
+          `blank: ${formatMm(p.lengthMm, 0)} L × ${formatMm(p.widthMm, 0)} W × ` +
+          `${formatMm(blankThickMm, 0)} T — "${p.partName}"${lamNote}.`);
+      });
     });
-  });
+  } else {
+    // Original single-piece logic (if no sections were found)
+      const sections = buildSections(board);
+
+      sections.forEach((sec, si) => {
+        // Cross-cut position from trimmed reference end
+        const crossCutPos = roundTo(sec.endY - Math.max(0, board.trimOffsetMm ?? 25.4), 0.5);
+        const sectionLen  = roundTo(sec.endY - sec.startY, 0.5);
+        const names = sections.map((p) => shortenPartName(p.partName)).join(", ");
+
+        spacer("Miter saw", "tool-mitersaw",
+          `Cross-cut section ${si + 1} at ${formatMm(crossCutPos, 0)} from reference end — yields a ${formatMm(sectionLen, 0)}-long piece containing: ${names}.`);
+
+        // Within the sections, rip each blank in order of x (width position)
+        const byX = [...sec.placements].sort((a, b) => a.x - b.x);
+        byX.forEach((p, pi) => {
+          const part = partsMap.get(p.partId);
+          // Thickness of THIS blank = per-layer target (for laminated parts) or full rough thickness
+          const blankThickMm = part && part.layers > 1
+            ? roundTo(part.roughThicknessMm / part.layers, 1)
+            : (part ? part.roughThicknessMm : planeThickMm);
+          const lamNote = (part && part.layers > 1)
+            ? ` · layer ${p.blankId?.split("-L")[1] ?? (pi + 1)} of ${part.layers} (glue-up after all blanks are cut)`
+            : "";
+          const crossCutNote = sectionLen > p.lengthMm + 1
+            ? ` (cross-cut to ${formatMm(p.lengthMm, 0)} first)`
+            : "";
+
+          spacer("Table saw", "tool-tablesaw",
+            `Rip to ${formatMm(p.widthMm, 0)} wide${crossCutNote} → ` +
+            `blank: ${formatMm(p.lengthMm, 0)} L × ${formatMm(p.widthMm, 0)} W × ` +
+            `${formatMm(blankThickMm, 0)} T — "${p.partName}"${lamNote}.`);
+        });
+      });
+  }
 
   // ── Panel glue-up note ───────────────────────────────────────
   // Collect unique panel parts on this board (identified by partId + strip count).
@@ -3944,15 +4020,61 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: boardDesc(b) })) }],
   });
 
-  // ── Phase 2: Face joint all boards ──────────────────────────────────────
+  // ── Phase 2: Trim reference end — all boards ────────────────────────────
+  // Doing this before cross-cutting gives a clean reference point for all subsequent measurements.
+  phases.push({
+    tool: "Miter saw", toolClass: "tool-mitersaw",
+    heading: "Trim reference end — all boards",
+    note: "Square up one end on every board and remove end checks. All measurements below are taken from this trimmed end. Boards with multiple sections must have this cut made first so the section cross-cuts can be positioned accurately.",
+    groups: [{
+      setting: null,
+      items: boards.map((b) => {
+        const trim   = b.trimOffsetMm ?? 25.4;
+        const usable = b.usableLengthMm ?? (b.lengthMm - 2 * trim);
+        return { label: b.id, detail: `trim ≈${formatMm(trim, 0)} from reference end → ≈${formatMm(usable, 0)} usable` };
+      }),
+    }],
+  });
+
+  // ── Phase 3: Cross-cut multi-section boards — BEFORE milling ────────────
+  const allCuts = [];
+  for (const b of boards) {
+    const sections = buildSections(b);
+    if (sections.length <= 1) continue;
+    const trim = b.trimOffsetMm ?? 25.4;
+    sections.slice(0, -1).forEach((sec, si) => {
+      const pos   = roundTo(sec.endY - trim, 1);
+      const len   = roundTo(sec.endY - sec.startY, 1);
+      const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
+      allCuts.push({ boardId: b.id, pos, len, names, si });
+    });
+  }
+
+  if (allCuts.length) {
+    const cutGroups = groupBy(allCuts, (c) => roundTo(c.pos, 1));
+    phases.push({
+      tool: "Miter saw", toolClass: "tool-mitersaw",
+      heading: "Cross-cut into sections — before milling, longest stop first",
+      note: "These boards have parts that span separate sections. Cross-cutting now, before face jointing and planing, keeps the pieces shorter and easier to handle at the jointer and planer. Set the stop block to the longest measurement first, then move it inward only — never outward.",
+      groups: [...cutGroups.entries()].sort((a, b) => b[0] - a[0]).map(([pos, cuts]) => ({
+        setting: `Stop at ${formatMm(pos, 0)} from reference end`,
+        items: cuts.map((c) => ({
+          label: c.boardId,
+          detail: `section ${c.si + 1}: ${formatMm(c.len, 0)} long — ${c.names}`,
+        })),
+      })),
+    });
+  }
+
+  // ── Phase 4: Face joint all boards ──────────────────────────────────────
   phases.push({
     tool: "Jointer", toolClass: "tool-jointer",
     heading: "Face joint all boards",
-    note: "One flat reference face per board. Mark the jointed face. No fence or depth change between boards.",
+    note: "One flat reference face per board. For boards that were cross-cut into sections, joint each section individually. Mark the jointed face. No fence or depth change between boards.",
     groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: boardDesc(b) })) }],
   });
 
-  // ── Phase 3: Re-saw oversize boards (optional) ───────────────────────────
+  // ── Phase 5: Re-saw oversize boards (optional) ───────────────────────────
   const resawItems = boards.map((b) => {
     const stockMm = quarterToMm(b.thicknessQuarter);
     const needed  = maxRoughThickForBoard(b, partsMap);
@@ -3984,7 +4106,7 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     });
   }
 
-  // ── Phase 4: Plane to per-layer thickness — thickest group first ─────────
+  // ── Phase 6: Plane to per-layer thickness — thickest group first ─────────
   // For laminated parts, each blank is planed to roughThicknessMm / layers.
   // The blanks are glued up to full thickness AFTER all cutting is done.
   const overWidthBoards = maxPlanerWidthMm > 0
@@ -4017,59 +4139,13 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     })),
   });
 
-  // ── Phase 5: Joint reference edge — all boards ───────────────────────────
+  // ── Phase 7: Joint reference edge — all boards ───────────────────────────
   phases.push({
     tool: "Jointer", toolClass: "tool-jointer",
     heading: "Joint reference edge — all boards",
     note: "One straight edge per board. This edge registers against the table saw rip fence for all subsequent rip cuts.",
     groups: [{ setting: null, items: boards.map((b) => ({ label: b.id, detail: "" })) }],
   });
-
-  // ── Phase 6: Trim reference end only — all boards ───────────────────────
-  phases.push({
-    tool: "Miter saw", toolClass: "tool-mitersaw",
-    heading: "Trim reference end only — all boards",
-    note: "Square up one end (the reference end) and remove end checks. Leave the far end intact — it will be cleaned up as the final cross-cut on each board. This preserves recovery options if a cross-cut measurement is off.",
-    groups: [{
-      setting: null,
-      items: boards.map((b) => {
-        const trim   = b.trimOffsetMm ?? 25.4;
-        const usable = b.usableLengthMm ?? (b.lengthMm - 2 * trim);
-        return { label: b.id, detail: `trim ≈${formatMm(trim, 0)} from reference end → ≈${formatMm(usable, 0)} usable` };
-      }),
-    }],
-  });
-
-  // ── Phase 7: Cross-cut sections — longest stop position first ────────────
-  const allCuts = [];
-  for (const b of boards) {
-    const sections = buildSections(b);
-    if (sections.length <= 1) continue;
-    const trim = b.trimOffsetMm ?? 25.4;
-    // Every section except the last needs a cross-cut; measure from trimmed reference end
-    sections.slice(0, -1).forEach((sec, si) => {
-      const pos  = roundTo(sec.endY - trim, 1);
-      const len  = roundTo(sec.endY - sec.startY, 1);
-      const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
-      allCuts.push({ boardId: b.id, pos, len, names, si });
-    });
-  }
-
-  if (allCuts.length) {
-    const cutGroups = groupBy(allCuts, (c) => roundTo(c.pos, 1));
-    phases.push({
-      tool: "Miter saw", toolClass: "tool-mitersaw",
-      heading: "Cross-cut sections — longest measurement first",
-      note: "Set stop block to the longest measurement first, then move it inward only. Process all boards at each stop before adjusting.",
-      groups: [...cutGroups.entries()].sort((a, b) => b[0] - a[0]).map(([pos, cuts]) => ({
-        setting: `Stop at ${formatMm(pos, 0)} from reference end`,
-        items: cuts.map((c) => ({
-          label: c.boardId,
-          detail: `section ${c.si + 1}: ${formatMm(c.len, 0)} long — ${c.names}`,
-        })),
-      })),
-    });
-  }
 
   // ── Phase 8: Rip all blanks — widest fence setting first ─────────────────
   const allRips = [];
