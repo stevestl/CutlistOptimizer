@@ -3733,23 +3733,36 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
     "Check for cupping, bowing, twist, and surface defects. " +
     "Mark any knots or checks to route around when laying out blanks.");
 
-  // 16″ minimum for safe jointing/planing of a short piece
-  const MIN_CROSS_CUT_MM = 16 * INCH_TO_MM;
+  const MIN_CROSS_CUT_MM = 16 * INCH_TO_MM; // safety minimum — too short for safe jointing/planing
+  const MIN_TAIL_MM      = 12 * INCH_TO_MM; // don't cross-cut if the remaining tail would be < 12″
+
+  // How much board is actually needed (last section end + allowance for both trim cuts)
+  const neededLengthMm = roundTo(sections[sections.length - 1].endY + 2 * trimEach, 1);
+  const boardExcessMm  = board.lengthMm - neededLengthMm;
 
   if (multiSectionBoard) {
-    // Only cross-cut sections that will produce a piece ≥ 16″ — shorter pieces stay with the board through milling
-    const earlyXcutSections = sections.filter((sec) => (sec.endY - sec.startY) >= MIN_CROSS_CUT_MM);
+    // Filter to sections ≥ 16″, then drop the last qualifying cut if it would leave a tail < 12″
+    let earlyXcutSections = sections.filter((sec) => (sec.endY - sec.startY) >= MIN_CROSS_CUT_MM);
+    if (earlyXcutSections.length > 0) {
+      const last = earlyXcutSections[earlyXcutSections.length - 1];
+      if (board.lengthMm - last.endY < MIN_TAIL_MM) {
+        earlyXcutSections = earlyXcutSections.slice(0, -1);
+      }
+    }
 
     if (earlyXcutSections.length > 0) {
       const skipped = sections.length - earlyXcutSections.length;
       const skipNote = skipped > 0
-        ? ` (${skipped} short section${skipped > 1 ? "s" : ""} < 16″ will be cross-cut after milling.)`
+        ? ` (${skipped} section${skipped > 1 ? "s" : ""} < 16″ will be cross-cut after milling.)`
         : "";
+      spacer("Miter saw", "tool-mitersaw",
+        `Trim reference end: cut ≈${formatMm(trimEach, 0)} from one end to square it up and remove end checks. ` +
+        `This is your reference end — all section measurements below are taken from here.`);
       spacer("Miter saw", "tool-mitersaw",
         `⚠️ Cross-cut this board into sections BEFORE milling — shorter pieces are easier to joint and plane.${skipNote}`);
 
-      // Measure each cut from the end of the previous cut, not the original reference end.
-      // This prevents a slightly inaccurate first cut from compounding into subsequent measurements.
+      // Measure each cut from the end of the previous cut (not from the original reference end)
+      // so that a slightly inaccurate first cut doesn't compound into all subsequent measurements.
       let prevEndY = trimEach;
       earlyXcutSections.forEach((sec, i) => {
         const measureMm  = roundTo(sec.endY - prevEndY, 0.5);
@@ -3766,11 +3779,30 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
         "Face joint one face flat on each section. This becomes your reference face (face against the planer bed).");
       firstStepCut = true;
     } else {
-      // All sections are too short for safe early cross-cutting — mill the full board first
+      // No sections qualify for early cross-cutting — rough-trim the board if it's much longer than needed
+      if (boardExcessMm > MIN_TAIL_MM && neededLengthMm >= MIN_CROSS_CUT_MM) {
+        spacer("Miter saw", "tool-mitersaw",
+          `Trim reference end: cut ≈${formatMm(trimEach, 0)} from one end to square it up and remove end checks. ` +
+          `This is your reference end — the rough-trim measurement below is taken from here.`);
+        spacer("Miter saw", "tool-mitersaw",
+          `Rough cross-cut at ≈${formatMm(neededLengthMm, 0)} from the reference end — ` +
+          `board is ${formatFt(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
+          `Saves ${formatMm(boardExcessMm, 0)} of working length before milling. This is a rough cut — no precision needed.`);
+      }
       spacer("Jointer", "tool-jointer",
         "Face joint one face flat. This becomes your reference face (face against the planer bed).");
     }
   } else {
+    // Single-section board — rough-trim if it's much longer than needed
+    if (boardExcessMm > MIN_TAIL_MM && neededLengthMm >= MIN_CROSS_CUT_MM) {
+      spacer("Miter saw", "tool-mitersaw",
+        `Trim reference end: cut ≈${formatMm(trimEach, 0)} from one end to square it up and remove end checks. ` +
+        `This is your reference end — the rough-trim measurement below is taken from here.`);
+      spacer("Miter saw", "tool-mitersaw",
+        `Rough cross-cut at ≈${formatMm(neededLengthMm, 0)} from the reference end — ` +
+        `board is ${formatFt(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
+        `Saves ${formatMm(boardExcessMm, 0)} of working length before milling. This is a rough cut — no precision needed.`);
+    }
     spacer("Jointer", "tool-jointer",
       "Face joint one face flat. This becomes your reference face (face against the planer bed).");
   }
@@ -4061,20 +4093,28 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     }],
   });
 
-  // ── Phase 3: Cross-cut multi-section boards — BEFORE milling ────────────
+  // ── Phase 3: Cross-cut and rough-trim boards — BEFORE milling ───────────
   const MIN_CROSS_CUT_MM = 16 * INCH_TO_MM; // safety minimum for jointing/planing
+  const MIN_TAIL_MM      = 12 * INCH_TO_MM; // don't cross-cut if remaining tail < 12″
+
+  // 3a — section cross-cuts (multi-section boards only)
   const allCuts = [];
   for (const b of boards) {
     const sections = buildSections(b);
     if (sections.length <= 1) continue;
     const trim = b.trimOffsetMm ?? 25.4;
+    // Collect qualifying cuts; drop the last one if its tail would be < 12″
+    const candidates = [];
     sections.slice(0, -1).forEach((sec, si) => {
-      const len = roundTo(sec.endY - sec.startY, 1);
-      if (len < MIN_CROSS_CUT_MM) return; // too short — will be cross-cut after milling
+      const len  = roundTo(sec.endY - sec.startY, 1);
+      const tail = b.lengthMm - sec.endY;
+      if (len  < MIN_CROSS_CUT_MM) return; // section too short — cross-cut after milling
+      if (tail < MIN_TAIL_MM)      return; // tail too short — leave it attached
       const pos   = roundTo(sec.endY - trim, 1);
       const names = sec.placements.map((p) => shortenPartName(p.partName)).join(", ");
-      allCuts.push({ boardId: b.id, pos, len, names, si });
+      candidates.push({ boardId: b.id, pos, len, names, si });
     });
+    candidates.forEach((c) => allCuts.push(c));
   }
 
   if (allCuts.length) {
@@ -4082,7 +4122,7 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     phases.push({
       tool: "Miter saw", toolClass: "tool-mitersaw",
       heading: "Cross-cut into sections — before milling, longest stop first",
-      note: "These boards have parts that span separate sections. Cross-cutting now, before face jointing and planing, keeps the pieces shorter and easier to handle at the jointer and planer. Set the stop block to the longest measurement first, then move it inward only — never outward.",
+      note: "These boards have parts in separate sections. Cross-cutting before face jointing and planing keeps pieces shorter and easier to handle. Set the stop block to the longest measurement first, then move it inward only — never outward.",
       groups: [...cutGroups.entries()].sort((a, b) => b[0] - a[0]).map(([pos, cuts]) => ({
         setting: `Stop at ${formatMm(pos, 0)} from reference end`,
         items: cuts.map((c) => ({
@@ -4090,6 +4130,32 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
           detail: `section ${c.si + 1}: ${formatMm(c.len, 0)} long — ${c.names}`,
         })),
       })),
+    });
+  }
+
+  // 3b — rough-trim boards that are much longer than their parts require
+  const roughTrimItems = [];
+  for (const b of boards) {
+    const sections     = buildSections(b);
+    const trim         = b.trimOffsetMm ?? 25.4;
+    const neededLength = roundTo(sections[sections.length - 1].endY + 2 * trim, 1);
+    const excess       = b.lengthMm - neededLength;
+    // Only rough-trim if there's no qualifying section cross-cut already shortening this board
+    const hasEarlyXcut = allCuts.some((c) => c.boardId === b.id);
+    if (!hasEarlyXcut && excess > MIN_TAIL_MM && neededLength >= MIN_CROSS_CUT_MM) {
+      roughTrimItems.push({ boardId: b.id, neededLength, excess });
+    }
+  }
+
+  if (roughTrimItems.length) {
+    phases.push({
+      tool: "Miter saw", toolClass: "tool-mitersaw",
+      heading: "Rough-trim long boards to working length — before milling",
+      note: "These boards are significantly longer than their parts require. A rough cross-cut now reduces working length for the jointer and planer. No precision needed — this is a rough cut.",
+      groups: [{ setting: null, items: roughTrimItems.map((r) => ({
+        label: r.boardId,
+        detail: `cut at ≈${formatMm(r.neededLength, 0)} from reference end — removes ${formatMm(r.excess, 0)} of excess`,
+      })) }],
     });
   }
 
