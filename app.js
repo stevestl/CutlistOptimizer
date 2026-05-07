@@ -3466,11 +3466,38 @@ function printWorkshopPDF() {
       box-shadow: none;
       background: #fff;
     }
-    .print-footer {
-      display: none;
+    .print-doc-title {
+      padding: 24px 28px 18px;
+      border-bottom: 2px solid #8b5e3c;
+      margin-bottom: 4px;
     }
+    .print-doc-title h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #2c2416;
+    }
+    .print-doc-title p {
+      margin: 0;
+      font-size: 12px;
+      color: #666;
+    }
+    .print-page-header { display: none; }
+    .print-footer      { display: none; }
     @media print {
-      body { margin: 0; padding: 0 0 32px; }
+      body { margin: 0; padding: 24px 0 32px; }
+      .print-page-header {
+        display: block;
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        padding: 5px 20px;
+        font-size: 10px;
+        font-weight: 600;
+        color: #555;
+        border-bottom: 1px solid #ddd;
+        background: #fff;
+        z-index: 100;
+      }
       .workshop-board-card.print-board {
         padding: 12px 20px;
         border: none !important;
@@ -3485,9 +3512,7 @@ function printWorkshopPDF() {
       .print-footer {
         display: block;
         position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
+        bottom: 0; left: 0; right: 0;
         padding: 4px 20px;
         font-size: 9px;
         color: #888;
@@ -3499,6 +3524,11 @@ function printWorkshopPDF() {
   </style>
 </head>
 <body>
+  <div class="print-page-header">${projectName} — Workshop Cut Guide</div>
+  <div class="print-doc-title">
+    <h1>${projectName}</h1>
+    <p>Workshop Cut Guide &nbsp;·&nbsp; ${dateStr}</p>
+  </div>
   ${pageSections}
   <div class="print-footer">${footerText}</div>
   <script>
