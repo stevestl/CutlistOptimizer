@@ -3456,7 +3456,7 @@ function printWorkshopPDF() {
       font-size: 13px;
       color: #2c2416;
       margin: 0;
-      padding: 0 0 28px;
+      padding: 28px 0 36px;
       background: #fff;
     }
     .workshop-board-card.print-board {
@@ -3482,22 +3482,32 @@ function printWorkshopPDF() {
       font-size: 12px;
       color: #666;
     }
-    .print-page-header { display: none; }
-    .print-footer      { display: none; }
+    .print-page-header {
+      display: block;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 5px 20px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 1px solid #ddd;
+      background: #fff;
+      z-index: 100;
+    }
+    .print-footer {
+      display: block;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      padding: 4px 20px;
+      font-size: 9px;
+      color: #888;
+      border-top: 1px solid #ddd;
+      background: #fff;
+      text-align: center;
+      z-index: 100;
+    }
     @media print {
-      body { margin: 0; padding: 24px 0 32px; }
-      .print-page-header {
-        display: block;
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        padding: 5px 20px;
-        font-size: 10px;
-        font-weight: 600;
-        color: #555;
-        border-bottom: 1px solid #ddd;
-        background: #fff;
-        z-index: 100;
-      }
+      body { margin: 0; padding: 28px 0 36px; }
       .workshop-board-card.print-board {
         padding: 12px 20px;
         border: none !important;
@@ -3508,17 +3518,6 @@ function printWorkshopPDF() {
         border: 1px solid #999 !important;
         background: #fff !important;
         color: #333 !important;
-      }
-      .print-footer {
-        display: block;
-        position: fixed;
-        bottom: 0; left: 0; right: 0;
-        padding: 4px 20px;
-        font-size: 9px;
-        color: #888;
-        border-top: 1px solid #ddd;
-        background: #fff;
-        text-align: center;
       }
     }
   </style>
@@ -3533,7 +3532,7 @@ function printWorkshopPDF() {
   <div class="print-footer">${footerText}</div>
   <script>
     window.addEventListener("load", function() { window.print(); });
-    setTimeout(function() { window.print(); }, 800);
+    window.addEventListener("afterprint", function() { window.close(); });
   <\/script>
 </body>
 </html>`;
