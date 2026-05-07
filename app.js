@@ -3831,7 +3831,7 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
           `This is your reference end — the rough-trim measurement below is taken from here.`);
         spacer("Miter saw", "tool-mitersaw",
           `Rough cross-cut at ≈${formatMm(neededLengthMm, 0)} from the reference end — ` +
-          `board is ${formatFt(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
+          `board is ${formatFeet(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
           `Saves ${formatMm(boardExcessMm, 0)} of working length before milling. This is a rough cut — no precision needed.`);
       }
       spacer("Jointer", "tool-jointer",
@@ -3845,7 +3845,7 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
         `This is your reference end — the rough-trim measurement below is taken from here.`);
       spacer("Miter saw", "tool-mitersaw",
         `Rough cross-cut at ≈${formatMm(neededLengthMm, 0)} from the reference end — ` +
-        `board is ${formatFt(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
+        `board is ${formatFeet(board.lengthFt, 1)} long but parts only need ${formatMm(neededLengthMm, 0)}. ` +
         `Saves ${formatMm(boardExcessMm, 0)} of working length before milling. This is a rough cut — no precision needed.`);
     }
     spacer("Jointer", "tool-jointer",
