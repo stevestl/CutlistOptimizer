@@ -1132,6 +1132,8 @@ async function handleAuthStateChange(user) {
 
     const role = await fetchOrCreateUserRole(user);
     state.firebase.role = role;
+
+    setFirebaseStatus(`Connected — signed in as ${user.email}`, "ok");
   } else {
     state.firebase.user      = null;
     state.firebase.connected = false;
