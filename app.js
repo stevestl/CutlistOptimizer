@@ -64,6 +64,7 @@ const DEFAULTS = {
     lengthMm: 25.4,
     boardEndTrimMm: 50.8,
     ripMarginMm: 1.6,
+    resawKerfMm: 1.6,  // bandsaw kerf — narrower than table-saw kerf
   },
   planningWidthMinIn:  4,
   planningWidthMaxIn:  12,
@@ -156,6 +157,7 @@ const dom = {
   allowLength:    document.querySelector("#allow-length"),
   boardEndTrim:   document.querySelector("#board-end-trim"),
   ripMargin:         document.querySelector("#rip-margin"),
+  resawKerf:         document.querySelector("#resaw-kerf"),
   maxPlanerWidth:    document.querySelector("#max-planer-width"),
 
   // Planning catalog range
@@ -487,6 +489,7 @@ function seedDefaultProjectInputs() {
   dom.allowLength.value    = String(DEFAULTS.milling.lengthMm);
   dom.boardEndTrim.value   = String(DEFAULTS.milling.boardEndTrimMm);
   dom.ripMargin.value      = String(DEFAULTS.milling.ripMarginMm);
+  dom.resawKerf.value      = String(DEFAULTS.milling.resawKerfMm);
 
   dom.planningWidthMin.value  = String(DEFAULTS.planningWidthMinIn);
   dom.planningWidthMax.value  = String(DEFAULTS.planningWidthMaxIn);
@@ -526,6 +529,7 @@ function collectInputs() {
       lengthMm:     getNonNegativeNumber(dom.allowLength.value,    DEFAULTS.milling.lengthMm),
       boardEndTrimMm: getNonNegativeNumber(dom.boardEndTrim.value, DEFAULTS.milling.boardEndTrimMm),
       ripMarginMm:  getNonNegativeNumber(dom.ripMargin.value,      DEFAULTS.milling.ripMarginMm),
+      resawKerfMm:  getNonNegativeNumber(dom.resawKerf.value,      DEFAULTS.milling.resawKerfMm),
     },
     maxPlanerWidthIn: getNonNegativeNumber(dom.maxPlanerWidth.value, DEFAULTS.maxPlanerWidthIn),
     planningWidthMinIn:  getPositiveNumber(dom.planningWidthMin.value,  DEFAULTS.planningWidthMinIn),
@@ -559,6 +563,7 @@ function restoreInputs(inputs) {
   dom.allowLength.value    = String(milling.lengthMm     ?? DEFAULTS.milling.lengthMm);
   dom.boardEndTrim.value   = String(milling.boardEndTrimMm ?? DEFAULTS.milling.boardEndTrimMm);
   dom.ripMargin.value      = String(milling.ripMarginMm  ?? DEFAULTS.milling.ripMarginMm);
+  dom.resawKerf.value      = String(milling.resawKerfMm  ?? DEFAULTS.milling.resawKerfMm);
   dom.maxPlanerWidth.value = String(inputs.maxPlanerWidthIn ?? DEFAULTS.maxPlanerWidthIn);
 
   // Support legacy projects saved with planningWidthsIn / planningLengthsFt arrays
@@ -3323,7 +3328,9 @@ function renderWorkshopTab() {
 
   // Build a fast lookup: partId → part data
   const partsMap = new Map(state.parts.map((p) => [p.id, p]));
-  const maxPlanerWidthIn = collectInputs().maxPlanerWidthIn;
+  const inputs = collectInputs();
+  const maxPlanerWidthIn = inputs.maxPlanerWidthIn;
+  const resawKerfMm = inputs.milling.resawKerfMm;
 
   // Global draw scale (same logic as renderLayouts — widest board = 180 px)
   const maxWidthMm = Math.max(...result.boards.map((b) => b.widthMm), 1);
@@ -3375,7 +3382,7 @@ function renderWorkshopTab() {
     cutHead.textContent = "Recommended cut sequence";
     card.append(cutHead);
 
-    const steps = buildCutSequence(board, partsMap, maxPlanerWidthIn);
+    const steps = buildCutSequence(board, partsMap, maxPlanerWidthIn, resawKerfMm);
     const ol = document.createElement("ol");
     ol.className = "workshop-steps";
     steps.forEach((step, i) => {
@@ -3411,7 +3418,7 @@ function renderWorkshopTab() {
   });
 
   // ── Consolidated schedule ────────────────────────────────────
-  const phases = buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn);
+  const phases = buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn, resawKerfMm);
   if (phases.length) {
     dom.workshopContent.append(renderConsolidatedSchedule(phases));
   }
@@ -3758,7 +3765,7 @@ function planeThickForBoard(board, partsMap) {
  * Generate a step-by-step cut sequence for a single board.
  * Steps are objects: { tool, toolClass, text }
  */
-function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
+function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0, resawKerfMm = 1.6) {
   const steps   = [];
   const spacer  = (tool, toolClass, text) => steps.push({ tool, toolClass, text });
 
@@ -3863,9 +3870,14 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const resawExcess = quarterToMm(board.thicknessQuarter) - maxRoughThick;
 
   if (resawExcess > 12 && !multiSectionBoard) { // Only suggest re-saw if not already sectioned
+    const resawTarget  = roundTo(maxRoughThick + 2, 0.5); // +2 mm cleanup margin for face-joint pass
+    const resawOffcut  = roundTo(quarterToMm(board.thicknessQuarter) - resawTarget - resawKerfMm, 1);
+    const offcutNote   = resawOffcut >= 10
+      ? ` Offcut ≈${formatMm(resawOffcut, 0)} — save for thinner parts if usable.`
+      : "";
     spacer("Band saw", "tool-bandsaw",
-      `Re-saw to ≈${formatMm(maxRoughThick + 3, 0.5)} — stock is ${formatMm(quarterToMm(board.thicknessQuarter), 0)} ` +
-      `but blanks only need ${formatMm(Math.max(1, maxRoughThick), 0)} before glue-up...`);
+      `Re-saw to ≈${formatMm(resawTarget, 0)} (bandsaw kerf ${formatMm(resawKerfMm, 1)}) — ` +
+      `stock is ${formatMm(quarterToMm(board.thicknessQuarter), 0)}, blanks need ≈${formatMm(maxRoughThick, 0)} rough.${offcutNote}`);
     spacer("Jointer", "tool-jointer",
       "Light face-joint pass on the re-sawn face to remove saw marks before planing.");
   }
@@ -4106,7 +4118,7 @@ function buildFinalMillingBox(board, partsMap) {
  * Returns an array of phase objects: { tool, toolClass, heading, note, groups[] }
  * Each group: { setting, items[] }  where item: { label, detail }
  */
-function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
+function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0, resawKerfMm = 1.6) {
   const boards = result.boards;
   if (!boards.length) return [];
   const maxPlanerWidthMm = maxPlanerWidthIn * INCH_TO_MM;
@@ -4216,12 +4228,13 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
 
   // ── Phase 5: Re-saw oversize boards (optional) ───────────────────────────
   const resawItems = boards.map((b) => {
-    const stockMm = quarterToMm(b.thicknessQuarter);
-    const needed  = maxRoughThickForBoard(b, partsMap);
-    const excess  = stockMm - needed;
+    const stockMm  = quarterToMm(b.thicknessQuarter);
+    const needed   = maxRoughThickForBoard(b, partsMap);
+    const excess   = stockMm - needed;
     if (excess <= 12) return null;
-    const target = roundTo(needed + 3, 1);
-    return { boardId: b.id, stockMm, needed, target };
+    const target   = roundTo(needed + 2, 0.5); // +2 mm cleanup margin for face-joint pass
+    const offcut   = roundTo(stockMm - target - resawKerfMm, 1);
+    return { boardId: b.id, stockMm, needed, target, offcut };
   }).filter(Boolean);
 
   if (resawItems.length) {
@@ -4229,12 +4242,12 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
     phases.push({
       tool: "Band saw", toolClass: "tool-bandsaw",
       heading: "Re-saw oversize boards — thickest target first",
-      note: "Do all re-saws before planing. Move blade down only. Save off-cuts for thinner parts.",
+      note: `Bandsaw kerf: ${formatMm(resawKerfMm, 1)}. Do all re-saws before planing. Save off-cuts — they may be thick enough for other parts.`,
       groups: [...byTarget.entries()].sort((a, b) => b[0] - a[0]).map(([t, items]) => ({
         setting: `Re-saw to ≈${formatMm(t, 0)}`,
         items: items.map((r) => ({
           label: r.boardId,
-          detail: `${formatMm(r.stockMm, 0)} stock → saves ${formatMm(r.stockMm - r.target, 0)} of planer travel`,
+          detail: `${formatMm(r.stockMm, 0)} stock → offcut ≈${formatMm(r.offcut, 0)}${r.offcut >= 10 ? " (keep for thinner parts)" : ""}`,
         })),
       })),
     });
