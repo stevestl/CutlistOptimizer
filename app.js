@@ -3438,20 +3438,22 @@ function printWorkshopPDF() {
   // Board cards (all except the consolidated schedule card, which gets its own last page)
   const boardCards = [...allCards].filter((c) => !c.classList.contains("workshop-consolidated-card"));
   const consolidatedCard = dom.workshopContent?.querySelector(".workshop-consolidated-card");
-  const totalPages = boardCards.length + (consolidatedCard ? 1 : 0);
-
   // Each section gets its own header/footer injected — reliable cross-browser alternative to position:fixed.
+  // Page numbers are omitted: board cards can span multiple printed pages, so any count would be wrong.
   const docTitle = `<div class="print-doc-title"><h1>${projectName}</h1><p>Workshop Cut Guide &nbsp;·&nbsp; ${dateStr}</p></div>`;
-  const makeSection = (innerHTML, pageNum, isLast, includeDocTitle = false) => {
+  const makeSection = (innerHTML, sectionLabel, isLast, includeDocTitle = false) => {
     const breakStyle = isLast ? "" : ' style="page-break-after:always;break-after:page;"';
-    const hdr = `<div class="pg-hdr"><span>${projectName} — Workshop Cut Guide</span><span>Page ${pageNum} of ${totalPages}</span></div>`;
-    const ftr = `<div class="pg-ftr">${footerText} · Page ${pageNum} of ${totalPages}</div>`;
+    const hdr = `<div class="pg-hdr"><span>${projectName} — Workshop Cut Guide</span><span>${sectionLabel}</span></div>`;
+    const ftr = `<div class="pg-ftr">${footerText}</div>`;
     return `<section class="workshop-board-card print-board"${breakStyle}>${hdr}${includeDocTitle ? docTitle : ""}${innerHTML}${ftr}</section>`;
   };
 
   const pageSections = [
-    ...boardCards.map((card, i) => makeSection(card.innerHTML, i + 1, false, i === 0)),
-    consolidatedCard ? makeSection(consolidatedCard.innerHTML, totalPages, true) : "",
+    ...boardCards.map((card, i) => {
+      const label = card.querySelector("h3")?.textContent ?? `Board ${i + 1}`;
+      return makeSection(card.innerHTML, label, false, i === 0);
+    }),
+    consolidatedCard ? makeSection(consolidatedCard.innerHTML, "Consolidated Mill Schedule", true) : "",
   ].join("\n");
 
   const html = `<!DOCTYPE html>
