@@ -3337,8 +3337,8 @@ function renderWorkshopTab() {
 
   result.boards.forEach((board) => {
     const card = document.createElement("div");
-
     card.className = "workshop-board-card";
+    try {
 
     // ── Header ──────────────────────────────────────────────────
     const title = document.createElement("h3");
@@ -3401,6 +3401,11 @@ function renderWorkshopTab() {
     if (finalBox) card.append(finalBox);
 
     dom.workshopContent.append(card);
+    } catch (err) {
+      console.error(`Workshop: error building card for board ${board.id}:`, err);
+      card.innerHTML += `<p class="muted" style="color:#c00;">⚠ Error generating guide for ${board.id}: ${err.message}</p>`;
+      dom.workshopContent.append(card);
+    }
   });
 
   // ── Consolidated schedule ────────────────────────────────────
@@ -3433,15 +3438,20 @@ function printWorkshopPDF() {
   // Board cards (all except the consolidated schedule card, which gets its own last page)
   const boardCards = [...allCards].filter((c) => !c.classList.contains("workshop-consolidated-card"));
   const consolidatedCard = dom.workshopContent?.querySelector(".workshop-consolidated-card");
+  const totalPages = boardCards.length + (consolidatedCard ? 1 : 0);
 
-  // Each board card = one page; consolidated card = final page
+  // Each section gets its own header/footer injected — reliable cross-browser alternative to position:fixed.
+  const docTitle = `<div class="print-doc-title"><h1>${projectName}</h1><p>Workshop Cut Guide &nbsp;·&nbsp; ${dateStr}</p></div>`;
+  const makeSection = (innerHTML, pageNum, isLast, includeDocTitle = false) => {
+    const breakStyle = isLast ? "" : ' style="page-break-after:always;break-after:page;"';
+    const hdr = `<div class="pg-hdr"><span>${projectName} — Workshop Cut Guide</span><span>Page ${pageNum} of ${totalPages}</span></div>`;
+    const ftr = `<div class="pg-ftr">${footerText} · Page ${pageNum} of ${totalPages}</div>`;
+    return `<section class="workshop-board-card print-board"${breakStyle}>${hdr}${includeDocTitle ? docTitle : ""}${innerHTML}${ftr}</section>`;
+  };
+
   const pageSections = [
-    ...boardCards.map((card) =>
-      `<section class="workshop-board-card print-board" style="page-break-after:always;break-after:page;">${card.innerHTML}</section>`
-    ),
-    consolidatedCard
-      ? `<section class="workshop-board-card print-board">${consolidatedCard.innerHTML}</section>`
-      : "",
+    ...boardCards.map((card, i) => makeSection(card.innerHTML, i + 1, false, i === 0)),
+    consolidatedCard ? makeSection(consolidatedCard.innerHTML, totalPages, true) : "",
   ].join("\n");
 
   const html = `<!DOCTYPE html>
@@ -3456,24 +3466,42 @@ function printWorkshopPDF() {
       font-size: 13px;
       color: #2c2416;
       margin: 0;
-      padding: 28px 0 36px;
+      padding: 0;
       background: #fff;
     }
     .workshop-board-card.print-board {
       border: none;
       border-radius: 0;
-      padding: 20px 28px;
+      padding: 10px 28px 16px;
       box-shadow: none;
       background: #fff;
     }
+    .pg-hdr {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 1px solid #ccc;
+      padding: 5px 0 5px;
+      margin-bottom: 10px;
+    }
+    .pg-ftr {
+      font-size: 9px;
+      color: #888;
+      border-top: 1px solid #ccc;
+      padding: 5px 0 4px;
+      margin-top: 12px;
+      text-align: center;
+    }
     .print-doc-title {
-      padding: 24px 28px 18px;
+      padding: 18px 0 14px;
       border-bottom: 2px solid #8b5e3c;
-      margin-bottom: 4px;
+      margin-bottom: 10px;
     }
     .print-doc-title h1 {
       margin: 0 0 4px;
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 700;
       color: #2c2416;
     }
@@ -3482,34 +3510,21 @@ function printWorkshopPDF() {
       font-size: 12px;
       color: #666;
     }
-    .print-page-header {
-      display: block;
+    #close-btn {
       position: fixed;
-      top: 0; left: 0; right: 0;
-      padding: 5px 20px;
-      font-size: 10px;
-      font-weight: 600;
-      color: #555;
-      border-bottom: 1px solid #ddd;
-      background: #fff;
-      z-index: 100;
-    }
-    .print-footer {
-      display: block;
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      padding: 4px 20px;
-      font-size: 9px;
-      color: #888;
-      border-top: 1px solid #ddd;
-      background: #fff;
-      text-align: center;
-      z-index: 100;
+      top: 10px; right: 14px;
+      background: #8b5e3c;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      z-index: 200;
     }
     @media print {
-      body { margin: 0; padding: 28px 0 36px; }
+      #close-btn { display: none; }
       .workshop-board-card.print-board {
-        padding: 12px 20px;
         border: none !important;
         box-shadow: none !important;
         background: #fff !important;
@@ -3523,16 +3538,12 @@ function printWorkshopPDF() {
   </style>
 </head>
 <body>
-  <div class="print-page-header">${projectName} — Workshop Cut Guide</div>
-  <div class="print-doc-title">
-    <h1>${projectName}</h1>
-    <p>Workshop Cut Guide &nbsp;·&nbsp; ${dateStr}</p>
-  </div>
+  <button id="close-btn" onclick="window.close()">✕ Close</button>
   ${pageSections}
-  <div class="print-footer">${footerText}</div>
   <script>
     window.addEventListener("load", function() { window.print(); });
     window.addEventListener("afterprint", function() { window.close(); });
+    window.matchMedia("print").addEventListener("change", function(e) { if (!e.matches) window.close(); });
   <\/script>
 </body>
 </html>`;
@@ -3765,6 +3776,11 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
   const MIN_CROSS_CUT_MM = 16 * INCH_TO_MM; // safety minimum — too short for safe jointing/planing
   const MIN_TAIL_MM      = 12 * INCH_TO_MM; // don't cross-cut if the remaining tail would be < 12″
 
+  if (sections.length === 0) {
+    spacer("Note", "tool-note", "No parts are assigned to this board — it can be returned or used for scrap.");
+    return steps;
+  }
+
   // How much board is actually needed (last section end + allowance for both trim cuts)
   const neededLengthMm = roundTo(sections[sections.length - 1].endY + 2 * trimEach, 1);
   const boardExcessMm  = board.lengthMm - neededLengthMm;
@@ -3865,11 +3881,8 @@ function buildCutSequence(board, partsMap, maxPlanerWidthIn = 0) {
     `Plane to ${formatMm(planeThickMm, 1)}${lamThickNote}. ` +
     `Take light passes (≤ 1 mm each). Flip between faces to keep even tension.${multiPassNote}`);
 
-  // Only joint long edge if we didn't just sectioned the board first.
-  if (!firstStepCut) {
-      spacer("Jointer", "tool-jointer",
-        "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
-  }
+  spacer("Jointer", "tool-jointer",
+    "Joint one long edge straight. This is your reference edge (fence against the rip fence).");
 
   // ── Blank cuts ───────────────────────────────────────────────
   // Assign a sequential blank label to every placement, ordered by section then left-to-right.
@@ -4166,6 +4179,7 @@ function buildConsolidatedSchedule(result, partsMap, maxPlanerWidthIn = 0) {
   const roughTrimItems = [];
   for (const b of boards) {
     const sections     = buildSections(b);
+    if (sections.length === 0) continue;
     const trim         = b.trimOffsetMm ?? 25.4;
     const neededLength = roundTo(sections[sections.length - 1].endY + 2 * trim, 1);
     const excess       = b.lengthMm - neededLength;
